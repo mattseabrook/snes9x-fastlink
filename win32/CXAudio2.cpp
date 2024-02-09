@@ -9,7 +9,6 @@
 #include "../apu/apu.h"
 #include "wsnes9x.h"
 #include <process.h>
-#include "dxerr.h"
 #include "commctrl.h"
 #include <assert.h>
 
