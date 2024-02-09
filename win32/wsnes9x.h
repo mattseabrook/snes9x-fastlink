@@ -289,10 +289,10 @@ struct sGUI {
 
 struct sLanguages {
     int idMenu;
-    TCHAR *errInitDD;
-    TCHAR *errModeDD;
-    TCHAR *errInitDS;
-    TCHAR *ApplyNeedRestart;
+    const TCHAR *errInitDD;
+    const TCHAR *errModeDD;
+    const TCHAR *errInitDS;
+    const TCHAR *ApplyNeedRestart;
 };
 
 #define CUSTKEY_ALT_MASK   0x01

@@ -1,7 +1,6 @@
 #include "snes9x.h"
 #include <windows.h>
 #include <png.h>
-#include "dxerr.h"
 #include "image_functions.h"
 
 #ifdef HAVE_LIBPNG

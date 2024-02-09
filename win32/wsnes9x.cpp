@@ -1426,7 +1426,7 @@ bool WinMoviePlay(LPCTSTR filename)
 
 	err = S9xMovieGetInfo(_tToChar(filename), &info);
 	if (err != SUCCESS) {
-		TCHAR* err_string = MOVIE_ERR_COULD_NOT_OPEN;
+		const TCHAR* err_string = MOVIE_ERR_COULD_NOT_OPEN;
 		switch(err)
 		{
 		case FILE_NOT_FOUND:
@@ -1466,7 +1466,7 @@ bool WinMoviePlay(LPCTSTR filename)
 	err = S9xMovieOpen (_tToChar(filename), GUI.MovieReadOnly);
 	if(err != SUCCESS)
 	{
-		TCHAR* err_string = MOVIE_ERR_COULD_NOT_OPEN;
+		const TCHAR* err_string = MOVIE_ERR_COULD_NOT_OPEN;
 		switch(err)
 		{
 		case FILE_NOT_FOUND:
@@ -1642,7 +1642,7 @@ LRESULT CALLBACK WinProc(
 					int err=S9xMovieOpen (_tToChar(op.Path), op.ReadOnly);
 					if(err!=SUCCESS)
 					{
-						TCHAR* err_string=MOVIE_ERR_COULD_NOT_OPEN;
+						const TCHAR* err_string=MOVIE_ERR_COULD_NOT_OPEN;
 						switch(err)
 						{
 						case FILE_NOT_FOUND:
@@ -1674,7 +1674,7 @@ LRESULT CALLBACK WinProc(
 					startingMovie = false;
 					if(err!=SUCCESS)
 					{
-						TCHAR* err_string=MOVIE_ERR_COULD_NOT_OPEN;
+						const TCHAR* err_string=MOVIE_ERR_COULD_NOT_OPEN;
 						switch(err)
 						{
 						case FILE_NOT_FOUND:
@@ -4274,7 +4274,7 @@ void WinDeleteRecentGamesList ()
 		GUI.RecentGames[i][0]=TEXT('\0');
 }
 
-BOOL CreateToolTip(int toolID, HWND hDlg, TCHAR* pText)
+BOOL CreateToolTip(int toolID, HWND hDlg, const TCHAR* pText)
 {
     // toolID:  the resource ID of the control.
     // hDlg:    the handle of the dialog box.
@@ -8286,7 +8286,7 @@ switch(msg)
 
 struct hotkey_dialog_item {
     SCustomKey *key_entry;
-    TCHAR *description;
+    const TCHAR *description;
 };
 
 // this structure defines the four sub pages in the hotkey config dialog

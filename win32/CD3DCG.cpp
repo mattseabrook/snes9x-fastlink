@@ -8,7 +8,6 @@
 #include "wsnes9x.h"
 #include "win32_display.h"
 #include "snes9x.h"
-#include "dxerr.h"
 #include <png.h>
 #include "CDirect3D.h"
 #include "image_functions.h"
