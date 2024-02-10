@@ -10,6 +10,7 @@ This is a fork of the official source code repository for the Snes9x project, cl
     - [Removal of the DirectX SDK](#removal-of-the-directx-sdk)
     - [fmtlib - External Dependency Warnings](#fmtlib---external-dependency-warnings)
     - [Const Correctness](#const-correctness)
+    - [Warning C4244](#warning-c4244)
 
 # CHANGELOG
 
@@ -25,7 +26,7 @@ This is a fork of the official source code repository for the Snes9x project, cl
 
 - Deleted `dxerr.h` and `dxerr.cpp`
 - Removed all instances of `#include "dxerr.h"` through the entire code-base
-- ...
+- `XAudio2` issues
   
 ### fmtlib - External Dependency Warnings
 
@@ -37,4 +38,18 @@ warning C4996: 'stdext::checked_array_iterator<T *>::value_type': warning STL404
   
 ### Const Correctness
 
+| Files Modified |
+| -------------- |
+| wsnes9x.cpp    |
+
 Several instances across the project of errors `C2440` and `C2664`, including variable declarations and function arguments, were updated to conform to the C++ 20 requirement `/Zc:strictStrings`. Compilation errors arose when non-const pointers were initialized with string literals. This was primarily observed in `wsnes9x.cpp` and other files where `TCHAR*` variables were assigned string literals directly. This practice is deemed unsafe in C++ 20 as it allows modification of string literals, which are stored in read-only memory sections of an application.
+
+### Warning C4244
+
+x
+
+| Files Modified          |
+| ----------------------- |
+| snes9x_imgui.cpp        |
+| COpenGL.cpp             |
+| vulkan_shader_chain.cpp |
