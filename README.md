@@ -23,7 +23,10 @@ This is a fork of the official source code repository for the Snes9x project, cl
 
 ### Removal of the DirectX SDK
 
-- lOREM iPSUM
+- Deleted `dxerr.h` and `dxerr.cpp`
+- Removed all instances of `#include "dxerr.h"` through the entire code-base
+- ...
+  
 ### fmtlib - External Dependency Warnings
 
 ```
