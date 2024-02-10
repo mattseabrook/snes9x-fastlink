@@ -17,9 +17,9 @@ This is a fork of the official source code repository for the Snes9x project, cl
 
 ### Lifted the project from VS 2017 to VS 2022
 
-- Windows SDK Version changed to `10.0 Latest`
-- Platform Toolset changed to `VS 2022 v143`
-- C++ Language Standard changed to `C++ 20`
+- Windows SDK Version changed from `8.1` to `10.0 Latest`
+- Platform Toolset changed from `VS 2017 v141_xp` to `VS 2022 v143`
+- C++ Language Standard changed from `C++ 17` to `C++ 20`
 
 ### Removal of the DirectX SDK
 
@@ -34,4 +34,4 @@ warning C4996: 'stdext::checked_array_iterator<T *>::value_type': warning STL404
   
 ### Const Correctness
 
-Several instances across the project of errors `C2440` and `C2664`, including variable declarations and function arguments, were updated to conform to the C++ 20 requirement `/Zc:strictStrings)`. Compilation errors arose when non-const pointers were initialized with string literals. This was primarily observed in `wsnes9x.cpp` and other files where `TCHAR*` variables were assigned string literals directly. This practice is deemed unsafe in C++ 20 as it allows modification of string literals, which are stored in read-only memory sections of an application.
+Several instances across the project of errors `C2440` and `C2664`, including variable declarations and function arguments, were updated to conform to the C++ 20 requirement `/Zc:strictStrings`. Compilation errors arose when non-const pointers were initialized with string literals. This was primarily observed in `wsnes9x.cpp` and other files where `TCHAR*` variables were assigned string literals directly. This practice is deemed unsafe in C++ 20 as it allows modification of string literals, which are stored in read-only memory sections of an application.
