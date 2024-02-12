@@ -4,15 +4,12 @@
    For further information, consult the LICENSE file in the root directory.
 \*****************************************************************************/
 
-#pragma comment( lib, "d3d9" )
-
 #include "cdirect3d.h"
 #include "win32_display.h"
 #include "../snes9x.h"
 #include "../gfx.h"
 #include "../display.h"
 #include "wsnes9x.h"
-#include "dxerr.h"
 #include <commctrl.h>
 
 #include "../filter/hq2x.h"
@@ -87,7 +84,8 @@ bool CDirect3D::Initialize(HWND hWnd)
 
 	pD3D = Direct3DCreate9(D3D_SDK_VERSION);
 	if(pD3D == NULL) {
-		DXTRACE_ERR_MSGBOX(TEXT("Error creating initial D3D9 object"), 0);
+		//DXTRACE_ERR_MSGBOX(TEXT("Error creating initial D3D9 object"), 0);
+		MessageBox(nullptr, TEXT("Error creating initial D3D9 object"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		return false;
 	}
 
@@ -105,19 +103,22 @@ bool CDirect3D::Initialize(HWND hWnd)
 					  &dPresentParams,
                       &pDevice);
 	if(FAILED(hr)) {
-		DXTRACE_ERR_MSGBOX(TEXT("Error creating D3D9 device"), hr);
+		//DXTRACE_ERR_MSGBOX(TEXT("Error creating D3D9 device"), hr);
+		MessageBox(nullptr, TEXT("Error creating D3D9 device"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		return false;
 	}
 
 	hr = pDevice->CreateVertexBuffer(sizeof(vertexStream),D3DUSAGE_WRITEONLY,0,D3DPOOL_MANAGED,&vertexBuffer,NULL);
 	if(FAILED(hr)) {
-		DXTRACE_ERR_MSGBOX(TEXT("Error creating vertex buffer"), hr);
+		//DXTRACE_ERR_MSGBOX(TEXT("Error creating vertex buffer"), hr);
+		MessageBox(nullptr, TEXT("Error creating vertex buffer"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		return false;
 	}
 
 	hr = pDevice->CreateVertexDeclaration(vertexElems,&vertexDeclaration);
 	if(FAILED(hr)) {
-		DXTRACE_ERR_MSGBOX(TEXT("Error creating vertex declaration"), hr);
+		//DXTRACE_ERR_MSGBOX(TEXT("Error creating vertex declaration"), hr);
+		MessageBox(nullptr, TEXT("Error creating vertex declaration"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		return false;
 	}
 
@@ -127,7 +128,8 @@ bool CDirect3D::Initialize(HWND hWnd)
 		cgContext = cgCreateContext();
 		hr = cgD3D9SetDevice(pDevice);
 		if(FAILED(hr)) {
-			DXTRACE_ERR_MSGBOX(TEXT("Error setting cg device"), hr);
+			//DXTRACE_ERR_MSGBOX(TEXT("Error setting cg device"), hr);
+			MessageBox(nullptr, TEXT("Error setting cg device"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		}
 		cgShader = new CD3DCG(cgContext,pDevice);
 	}
@@ -293,14 +295,16 @@ void CDirect3D::Render(SSurface Src)
 				    ResetDevice();
 				return;
 			default:
-				DXTRACE_ERR_MSGBOX(TEXT("Internal driver error"), hr);
+				//DXTRACE_ERR_MSGBOX(TEXT("Internal driver error"), hr);
+				MessageBox(nullptr, TEXT("Internal driver error"), TEXT("Error"), MB_ICONERROR | MB_OK);
 				return;
 		}
 	}
 
 	//BlankTexture(drawSurface);
 	if(FAILED(hr = drawSurface->LockRect(0, &lr, NULL, 0))) {
-		DXTRACE_ERR_MSGBOX(TEXT("Unable to lock texture"), hr);
+		//DXTRACE_ERR_MSGBOX(TEXT("Unable to lock texture"), hr);
+		MessageBox(nullptr, TEXT("Unable to lock texture"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		return;
 	} else {
 		Dst.Surface = (unsigned char *)lr.pBits;
@@ -402,7 +406,8 @@ void CDirect3D::CreateDrawSurface()
 			NULL );
 
 		if(FAILED(hr)) {
-			DXTRACE_ERR_MSGBOX(TEXT("Error while creating texture"), hr);
+			//DXTRACE_ERR_MSGBOX(TEXT("Error while creating texture"), hr);
+			MessageBox(nullptr, TEXT("Error while creating texture"), TEXT("Error"), MB_ICONERROR | MB_OK);
 			return;
 		}
 	}
@@ -432,7 +437,8 @@ bool CDirect3D::BlankTexture(LPDIRECT3DTEXTURE9 texture)
 	HRESULT hr;
 
 	if(FAILED(hr = texture->LockRect(0, &lr, NULL, 0))) {
-		DXTRACE_ERR_MSGBOX(TEXT("Unable to lock texture"), hr);
+		//DXTRACE_ERR_MSGBOX(TEXT("Unable to lock texture"), hr);
+		MessageBox(nullptr, TEXT("Unable to lock texture"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		return false;
 	} else {
 		memset(lr.pBits, 0, lr.Pitch * quadTextureSize);
@@ -592,7 +598,8 @@ bool CDirect3D::ResetDevice()
 	}
 
 	if(FAILED(hr = pDevice->Reset(&dPresentParams))) {
-		DXTRACE_ERR(TEXT("Unable to reset device"), hr);
+		//DXTRACE_ERR(TEXT("Unable to reset device"), hr);
+		MessageBox(nullptr, TEXT("Unable to reset device"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		return false;
 	}
 

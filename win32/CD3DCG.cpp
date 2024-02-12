@@ -202,7 +202,8 @@ bool CD3DCG::LoadShader(const TCHAR *shaderFile)
 		hr = pDevice->CreateVertexBuffer(sizeof(VERTEX)*4,D3DUSAGE_WRITEONLY,0,D3DPOOL_MANAGED,&pass.vertexBuffer,NULL);
 		if(FAILED(hr)) {
 			pass.vertexBuffer = NULL;
-			DXTRACE_ERR_MSGBOX(TEXT("Error creating vertex buffer"), hr);
+			//DXTRACE_ERR_MSGBOX(TEXT("Error creating vertex buffer"), hr);
+			MessageBox(nullptr, TEXT("Error creating vertex buffer"), TEXT("Error"), MB_ICONERROR | MB_OK);
 			return false;
 		}
 
@@ -253,7 +254,8 @@ void CD3DCG::ensureTextureSize(LPDIRECT3DTEXTURE9 &tex, float2 &texSize,
 		texSize = wantedSize;
 
 		if(FAILED(hr)) {
-			DXTRACE_ERR_MSGBOX(TEXT("Error while creating texture"), hr);
+			//DXTRACE_ERR_MSGBOX(TEXT("Error while creating texture"), hr);
+			MessageBox(nullptr, TEXT("Error while creating texture"), TEXT("Error"), MB_ICONERROR | MB_OK);
 			return;
 		}
 	}
@@ -691,7 +693,8 @@ void CD3DCG::setupVertexDeclaration(shaderPass &pass)
 	LPDIRECT3DVERTEXDECLARATION9 vertexDeclaration;
 	HRESULT hr = pDevice->CreateVertexDeclaration(vElems,&vertexDeclaration);
 	if(FAILED(hr)) {
-		DXTRACE_ERR_MSGBOX(TEXT("Error creating vertex declaration"), hr);
+		//DXTRACE_ERR_MSGBOX(TEXT("Error creating vertex declaration"), hr);
+		MessageBox(nullptr, TEXT("Error creating vertex declaration"), TEXT("Error"), MB_ICONERROR | MB_OK);
 	}
 	if(pass.vertexDeclaration)
 		pass.vertexDeclaration->Release();

@@ -4,12 +4,8 @@
    For further information, consult the LICENSE file in the root directory.
 \*****************************************************************************/
 
-#ifndef W9XDIRECT3D_H
-#define W9XDIRECT3D_H
-
 #define MAX_SHADER_TEXTURES 8
 
-#include <d3d9.h>
 #include <windows.h>
 
 #include "cgFunctions.h"
@@ -90,5 +86,3 @@ public:
 	void SetSnes9xColorFormat() override;
 	void EnumModes(std::vector<dMode> *modeVector) override;
 };
-
-#endif

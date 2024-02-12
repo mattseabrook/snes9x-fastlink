@@ -11,6 +11,7 @@
 #include <process.h>
 #include "commctrl.h"
 #include <assert.h>
+#include <strsafe.h>
 
 /* CXAudio2
 	Implements audio output through XAudio2.
@@ -111,8 +112,14 @@ bool CXAudio2::InitXAudio2(void)
 
 	HRESULT hr;
 	if ( FAILED(hr = XAudio2Create( &pXAudio2, 0 , XAUDIO2_DEFAULT_PROCESSOR ) ) ) {
+/*
 		DXTRACE_ERR_MSGBOX(TEXT("Unable to create XAudio2 object."),hr);
-		DialogBox(GUI.hInstance, MAKEINTRESOURCE(IDD_DIALOG_XAUDIO2_INIT_ERROR), GUI.hWnd, DlgXAudio2InitError);
+		DialogBox(GUI.Instance, MAKEINTRESOURCE(IDD_DIALOG_XAUDIO2_INIT_ERROR), GUI.hWnd, DlgXAudio2InitError);
+*/
+		WCHAR errMsg[512];
+		StringCchPrintf(errMsg, _countof(errMsg), L"Unable to create XAudio2 object. HRESULT: 0x%08X", hr);
+		MessageBox(GUI.hWnd, errMsg, L"XAudio2 Initialization Error", MB_ICONERROR | MB_OK);
+
 		return false;
 	}
 	initDone = true;
@@ -135,7 +142,10 @@ bool CXAudio2::InitVoices(void)
 
 	if ( FAILED(hr = pXAudio2->CreateMasteringVoice( &pMasterVoice, 2,
 		Settings.SoundPlaybackRate, 0, device_index, NULL ) ) ) {
-			DXTRACE_ERR_MSGBOX(TEXT("Unable to create mastering voice."),hr);
+			//DXTRACE_ERR_MSGBOX(TEXT("Unable to create mastering voice."),hr);
+			WCHAR errMsg[512];
+			StringCchPrintf(errMsg, _countof(errMsg), L"Unable to create mastering voice. HRESULT: 0x%08X", hr);
+			MessageBox(GUI.hWnd, errMsg, L"Mastering Voice Initialization Error", MB_ICONERROR | MB_OK);
 			return false;
 	}
 
@@ -150,7 +160,10 @@ bool CXAudio2::InitVoices(void)
 
 	if( FAILED(hr = pXAudio2->CreateSourceVoice(&pSourceVoice, (WAVEFORMATEX*)&wfx,
 		XAUDIO2_VOICE_NOSRC, XAUDIO2_DEFAULT_FREQ_RATIO, this, NULL, NULL ) ) ) {
-			DXTRACE_ERR_MSGBOX(TEXT("Unable to create source voice."),hr);
+			//DXTRACE_ERR_MSGBOX(TEXT("Unable to create source voice."),hr);
+			WCHAR errMsg[512];
+			StringCchPrintf(errMsg, _countof(errMsg), L"Unable to create source voice. HRESULT: 0x%08X", hr);
+			MessageBox(GUI.hWnd, errMsg, L"Source Voice Initialization Error", MB_ICONERROR | MB_OK);
 			return false;
 	}
 
