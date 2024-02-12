@@ -4,6 +4,9 @@
    For further information, consult the LICENSE file in the root directory.
 \*****************************************************************************/
 
+#include <strsafe.h>
+#include <mmdeviceapi.h>
+#include <functiondiscoverykeys_devpkey.h>
 #include "CXAudio2.h"
 #include "../snes9x.h"
 #include "../apu/apu.h"
@@ -11,7 +14,6 @@
 #include <process.h>
 #include "commctrl.h"
 #include <assert.h>
-#include <strsafe.h>
 
 /* CXAudio2
 	Implements audio output through XAudio2.
@@ -383,28 +385,37 @@ get a list of the available output devices
 -----
 returns a vector of display names
 */
-std::vector<std::wstring> CXAudio2::GetDeviceList()
-{
-    std::vector<std::wstring> device_list;
+std::vector<std::wstring> CXAudio2::GetDeviceList() {
+	std::vector<std::wstring> device_list;
+	device_list.push_back(L"Default"); // Add default device
 
-    if (pXAudio2)
-    {
-        UINT32 num_devices;
-        pXAudio2->GetDeviceCount(&num_devices);
+	IMMDeviceEnumerator* pEnumerator = nullptr;
+	IMMDeviceCollection* pCollection = nullptr;
+	HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&pEnumerator);
 
-        device_list.push_back(_T("Default"));
-
-        for (unsigned int i = 0; i < num_devices; i++)
-        {
-            XAUDIO2_DEVICE_DETAILS device_details;
-            if (SUCCEEDED(pXAudio2->GetDeviceDetails(i, &device_details)))
-            {
-                device_list.push_back(device_details.DisplayName);
-            }
-        }
-    }
-
-    return device_list;
+	if (SUCCEEDED(hr)) {
+		hr = pEnumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &pCollection);
+		if (SUCCEEDED(hr)) {
+			UINT count;
+			pCollection->GetCount(&count);
+			for (UINT i = 0; i < count; i++) {
+				IMMDevice* pEndpoint = nullptr;
+				hr = pCollection->Item(i, &pEndpoint);
+				if (SUCCEEDED(hr)) {
+					LPWSTR pwszID = nullptr;
+					hr = pEndpoint->GetId(&pwszID);
+					if (SUCCEEDED(hr)) {
+						device_list.push_back(pwszID);
+						CoTaskMemFree(pwszID);
+					}
+					pEndpoint->Release();
+				}
+			}
+			pCollection->Release();
+		}
+		pEnumerator->Release();
+	}
+	return device_list;
 }
 
 /*  CXAudio2::FindDeviceIndex
