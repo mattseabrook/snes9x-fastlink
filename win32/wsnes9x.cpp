@@ -4235,7 +4235,9 @@ void S9xSetRecentGames ()
 				mii_sep.fType = MFT_SEPARATOR;
 				InsertMenuItem(recent, 0xFF00 + i + 1, FALSE, &mii_sep);
 
-				mii.dwTypeData = TEXT("Clear List");
+				//mii.dwTypeData = TEXT("Clear List");
+				_stprintf(name, TEXT("Clear List"));
+				mii.dwTypeData = name;
 				mii.cch = lstrlen(name) + 1;
 				mii.wID = 0xFF00 + MAX_RECENT_GAMES_LIST_SIZE;
 				InsertMenuItem(recent, mii.wID, FALSE, &mii);

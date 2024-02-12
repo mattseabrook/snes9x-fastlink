@@ -142,9 +142,17 @@ bool CXAudio2::InitVoices(void)
     if (device_index < 0)
         device_index = 0;
 
-	if ( FAILED(hr = pXAudio2->CreateMasteringVoice( &pMasterVoice, 2,
-		Settings.SoundPlaybackRate, 0, device_index, NULL ) ) ) {
-			//DXTRACE_ERR_MSGBOX(TEXT("Unable to create mastering voice."),hr);
+	std::vector<std::wstring> deviceList = GetDeviceList();
+	LPCWSTR deviceID = nullptr;
+	if (device_index > 0 && device_index < deviceList.size()) {
+		deviceID = deviceList[device_index].c_str();
+	}
+
+	if ( FAILED(hr = pXAudio2->CreateMasteringVoice(&pMasterVoice,
+		2,
+		Settings.SoundPlaybackRate, 
+		0, deviceID, 
+		NULL ) ) ) {
 			WCHAR errMsg[512];
 			StringCchPrintf(errMsg, _countof(errMsg), L"Unable to create mastering voice. HRESULT: 0x%08X", hr);
 			MessageBox(GUI.hWnd, errMsg, L"Mastering Voice Initialization Error", MB_ICONERROR | MB_OK);
