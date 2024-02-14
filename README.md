@@ -4,8 +4,9 @@ This is a fork of the official source code repository for the Snes9x project, cl
 
 **Table-of-Contents**
 
-- [SNES9X Proprietary SNES Memory Architecture](#snes9x-proprietary-snes-memory-architecture)
-  - [CMemory struct](#cmemory-struct)
+- [Developers](#developers)
+  - [SNES9X Proprietary SNES Memory Architecture](#snes9x-proprietary-snes-memory-architecture)
+    - [CMemory struct](#cmemory-struct)
 - [TODO](#todo)
 - [CHANGELOG](#changelog)
   - [v0.1 - 2024-02-09](#v01---2024-02-09)
@@ -17,9 +18,11 @@ This is a fork of the official source code repository for the Snes9x project, cl
     - [Const Correctness](#const-correctness)
     - [Warning C4244](#warning-c4244)
 
-# SNES9X Proprietary SNES Memory Architecture
+# Developers
 
-## CMemory struct
+## SNES9X Proprietary SNES Memory Architecture
+
+### CMemory struct
 
 | Name                  | Type                 | Description                                                                              |
 | --------------------- | -------------------- | ---------------------------------------------------------------------------------------- |
