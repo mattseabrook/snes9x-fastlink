@@ -82,7 +82,12 @@ Completely removed `DirectDraw` from the code base. Here's exactly what changed:
 
 - Deleted `ddraw` folder.
 - Deleted `CDirectDraw.h` and `CDirectDraw.cpp`
-- Lorem Ipsum
+```
+delete mode 100644 win32/CDirectDraw.cpp
+ delete mode 100644 win32/CDirectDraw.h
+ delete mode 100644 win32/ddraw/ddraw_x64.lib
+ delete mode 100644 win32/ddraw/ddraw_x86.lib
+ ```
   
 ### fmtlib - External Dependency Warnings
 
