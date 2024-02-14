@@ -4,6 +4,7 @@
    For further information, consult the LICENSE file in the root directory.
 \*****************************************************************************/
 
+#include <d3d9.h>
 #include "cdirect3d.h"
 #include "win32_display.h"
 #include "../snes9x.h"
@@ -84,8 +85,7 @@ bool CDirect3D::Initialize(HWND hWnd)
 
 	pD3D = Direct3DCreate9(D3D_SDK_VERSION);
 	if(pD3D == NULL) {
-		//DXTRACE_ERR_MSGBOX(TEXT("Error creating initial D3D9 object"), 0);
-		MessageBox(nullptr, TEXT("Error creating initial D3D9 object"), TEXT("Error"), MB_ICONERROR | MB_OK);
+		MessageBox(nullptr, TEXT("Error creating initial D3D object"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		return false;
 	}
 

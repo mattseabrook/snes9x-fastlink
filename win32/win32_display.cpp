@@ -15,9 +15,7 @@
 #include "wsnes9x.h"
 #include "win32_display.h"
 #include "CDirect3D.h"
-#if DIRECTDRAW_SUPPORT
-#include "CDirectDraw.h"
-#endif
+
 #include "COpenGL.h"
 #include "CVulkan.h"
 #include "IS9xDisplayOutput.h"
@@ -28,9 +26,6 @@
 
 // available display output methods
 CDirect3D Direct3D;
-#if DIRECTDRAW_SUPPORT
-CDirectDraw DirectDraw;
-#endif
 COpenGL OpenGL;
 CVulkan VulkanDriver;
 SSurface Src = {0};
@@ -116,11 +111,6 @@ bool WinDisplayReset(void)
 		case DIRECT3D:
 			S9xDisplayOutput = &Direct3D;
 			break;
-#if DIRECTDRAW_SUPPORT
-		case DIRECTDRAW:
-			S9xDisplayOutput = &DirectDraw;
-			break;
-#endif
 		case OPENGL:
 			if (VulkanUsed)
 			{
@@ -403,117 +393,6 @@ void ReduceToPath(TCHAR *filename)
         }
     }
 }
-
-// TODO: abstract the following functions in some way - only necessary for directdraw
-
-/* DirectDraw only begin */
-void SwitchToGDI()
-{
-#if DIRECTDRAW_SUPPORT
-	if(GUI.outputMethod!=DIRECTDRAW)
-		return;
-
-    IPPU.ColorsChanged = true;
-    DirectDraw.lpDD->FlipToGDISurface();
-    GUI.FlipCounter = 0;
-    DirectDraw.lpDDSPrimary2->SetPalette (NULL);
-#endif
-}
-
-static void ClearSurface (LPDIRECTDRAWSURFACE2 lpDDSurface)
-{
-#if DIRECTDRAW_SUPPORT
-    DDBLTFX fx;
-
-    memset (&fx, 0, sizeof (fx));
-    fx.dwSize = sizeof (fx);
-
-    while (lpDDSurface->Blt (NULL, DirectDraw.lpDDSPrimary2, NULL, DDBLT_WAIT, NULL) == DDERR_SURFACELOST)
-        lpDDSurface->Restore ();
-#endif
-}
-
-void UpdateBackBuffer()
-{
-#if DIRECTDRAW_SUPPORT
-    if (GUI.outputMethod==DIRECTDRAW && GUI.FullScreen)
-    {
-        SwitchToGDI();
-
-        DDBLTFX fx;
-
-        memset (&fx, 0, sizeof (fx));
-        fx.dwSize = sizeof (fx);
-
-        while (DirectDraw.lpDDSPrimary2->Blt (NULL, NULL, NULL, DDBLT_WAIT | DDBLT_COLORFILL, &fx) == DDERR_SURFACELOST)
-            DirectDraw.lpDDSPrimary2->Restore ();
-
-        if (GetMenu (GUI.hWnd) != NULL)
-            DrawMenuBar (GUI.hWnd);
-
-        GUI.FlipCounter = 0;
-        DDSCAPS caps;
-        caps.dwCaps = DDSCAPS_BACKBUFFER;
-
-        LPDIRECTDRAWSURFACE2 pDDSurface;
-
-        if (DirectDraw.lpDDSPrimary2->GetAttachedSurface (&caps, &pDDSurface) == DD_OK &&
-            pDDSurface != NULL)
-        {
-            ClearSurface (pDDSurface);
-			DirectDraw.lpDDSPrimary2->Flip (NULL, GUI.Vsync?DDFLIP_WAIT:DDFLIP_NOVSYNC);
-            while (DirectDraw.lpDDSPrimary2->GetFlipStatus (DDGFS_ISFLIPDONE) != DD_OK)
-                Sleep (0);
-			if(DirectDraw.doubleBuffered)
-	            ClearSurface (pDDSurface);
-        }
-    }
-    else
-    {
-        if (GetMenu( GUI.hWnd) != NULL)
-            DrawMenuBar (GUI.hWnd);
-    }
-#endif
-}
-
-void RestoreGUIDisplay ()
-{
-#if DIRECTDRAW_SUPPORT
-	if(GUI.outputMethod!=DIRECTDRAW)
-		return;
-
-    S9xSetPause (PAUSE_RESTORE_GUI);
-
-    if (GUI.FullScreen &&
-        (GUI.FullscreenMode.width < 640 || GUI.FullscreenMode.height < 400) &&
-        !DirectDraw.SetDisplayMode (640, 480, 1, 0, 60, !GUI.FullScreen, false))
-    {
-        MessageBox (GUI.hWnd, Languages[ GUI.Language].errModeDD, TEXT("Snes9x - DirectDraw(1)"), MB_OK | MB_ICONSTOP);
-        S9xClearPause (PAUSE_RESTORE_GUI);
-        return;
-    }
-    SwitchToGDI();
-    S9xClearPause (PAUSE_RESTORE_GUI);
-#endif
-}
-
-void RestoreSNESDisplay ()
-{
-#if DIRECTDRAW_SUPPORT
-	if(GUI.outputMethod!=DIRECTDRAW)
-		return;
-
-	if (!DirectDraw.SetFullscreen(GUI.FullScreen))
-    {
-        MessageBox (GUI.hWnd, Languages[ GUI.Language].errModeDD, TEXT("Snes9x - DirectDraw(4)"), MB_OK | MB_ICONSTOP);
-        return;
-    }
-
-    UpdateBackBuffer();
-#endif
-}
-
-/* DirectDraw only end */
 
 void SaveMainWinPos()
 {

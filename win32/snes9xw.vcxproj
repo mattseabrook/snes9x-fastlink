@@ -140,7 +140,7 @@
       <Culture>0x0409</Culture>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>comctl32.lib;winmm.lib;opengl32.lib;glu32.lib;wsock32.lib;dsound.lib;dxguid.lib;delayimp.lib;vfw32.lib;msxml2.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;winmm.lib;opengl32.lib;glu32.lib;wsock32.lib;dsound.lib;dxguid.lib;delayimp.lib;vfw32.lib;msxml2.lib;shlwapi.lib;d3d9.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <EnableUAC>false</EnableUAC>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -464,7 +464,6 @@
     <ClInclude Include="CCGShader.h" />
     <ClInclude Include="CD3DCG.h" />
     <CustomBuild Include="CDirect3D.h" />
-    <ClInclude Include="CDirectDraw.h" />
     <ClInclude Include="cgFunctions.h" />
     <ClInclude Include="CGLCG.h" />
     <ClInclude Include="cgMini.h" />
@@ -635,7 +634,6 @@
     <ClCompile Include="CCGShader.cpp" />
     <ClCompile Include="CD3DCG.cpp" />
     <ClCompile Include="CDirect3D.cpp" />
-    <ClCompile Include="CDirectDraw.cpp" />
     <ClCompile Include="cgFunctions.cpp" />
     <ClCompile Include="CGLCG.cpp" />
     <ClCompile Include="CSaveLoadWithPreviewDlg.cpp" />
