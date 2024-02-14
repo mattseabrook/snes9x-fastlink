@@ -24,6 +24,8 @@ This is a fork of the official source code repository for the Snes9x project, cl
 
 ### CMemory struct
 
+**Files**: `memmap.h` , `memmap.c`
+
 | Name                  | Type                 | Description                                                                              |
 | --------------------- | -------------------- | ---------------------------------------------------------------------------------------- |
 | RAM                   | uint8                | The working / state memory of the Super Nintendo itself                                  |
@@ -55,7 +57,10 @@ This is a fork of the official source code repository for the Snes9x project, cl
 
 # TODO
 
-- Document the 
+- Add-in the Nathaniel Lomann JSON header-only implementation
+- Figure out how the Configuration is persistent (*.cfg file or Windows Registry?)
+- Entrypoint for Socket Server is in `wsnes9x.cpp` on Line `3917`
+
 # CHANGELOG
 
 ## v0.1 - 2024-02-09
