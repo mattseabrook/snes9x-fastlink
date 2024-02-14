@@ -6,13 +6,15 @@
 
 /* This is where all the GUI text strings will eventually end up */
 
-#define WINDOW_TITLE TEXT("Snes9x")
+#define WINDOW_TITLE TEXT("Snes9x-FastLink")
 
 // the windows registry is no longer used
 //#define MY_REG_KEY   "Software\\Emulators\\Snes9x"
 //#define REG_KEY_VER  "1.31"
 
-#define DISCLAIMER_TEXT        TEXT("Snes9x v%s for Windows.\r\n\
+#define DISCLAIMER_TEXT        TEXT("Snes9x-FastLink v%s for Windows.\r\n\
+(c) Copyright 2024 Matt Seabrook (info@mattseabrook.net)\r\n\
+\r\n\
 (c) Copyright 1996 - 2002  Gary Henderson and Jerremy Koot (jkoot@snes9x.com)\r\n\
 (c) Copyright 2002 - 2004  Matthew Kendora\r\n\
 (c) Copyright 2002 - 2005  Peter Bortas\r\n\
