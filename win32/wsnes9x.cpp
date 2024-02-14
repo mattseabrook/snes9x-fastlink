@@ -437,7 +437,6 @@ static uint32 FrameTimings[] = {
 struct sLanguages Languages[] = {
 	{ IDR_MENU_US,
 		TEXT("Failed to initialize currently selected display output!\n Try switching to a different output method in the display settings."),
-		TEXT("DirectDraw failed to set the selected display mode!"),
 		TEXT("DirectSound failed to initialize; no sound will be played."),
 		TEXT("These settings won't take effect until you restart the emulator.")}
 };
@@ -464,8 +463,6 @@ std::vector<dMode> dm;
 /*****************************************************************************/
 void DoAVIOpen(const TCHAR* filename);
 void DoAVIClose(int reason);
-void RestoreGUIDisplay ();
-void RestoreSNESDisplay ();
 void CheckDirectoryIsWritable (const char *filename);
 static void CheckMenuStates ();
 static void ResetFrameTimer ();
@@ -1310,7 +1307,7 @@ int HandleKeyMessage(WPARAM wParam, LPARAM lParam)
 	{
 		case VK_ESCAPE:
 			if(
-                GUI.outputMethod!=DIRECTDRAW &&
+                //GUI.outputMethod!=DIRECTDRAW &&
                 GUI.FullScreen && !GUI.EmulateFullscreen)
 				ToggleFullScreen();
 			else
@@ -1598,7 +1595,6 @@ LRESULT CALLBACK WinProc(
 			break;
 		case ID_FILE_WRITE_AVI:
 			{
-				RestoreGUIDisplay ();  //exit DirectX
 				OPENFILENAME  ofn;
 				TCHAR  szFileName[MAX_PATH];
 				TCHAR  szPathName[MAX_PATH];
@@ -1621,7 +1617,6 @@ LRESULT CALLBACK WinProc(
 				{
 					DoAVIOpen(szFileName);
 				}
-				RestoreSNESDisplay ();// re-enter after dialog
 			}
 			break;
 		case ID_FILE_STOP_AVI:
@@ -1633,7 +1628,6 @@ LRESULT CALLBACK WinProc(
 			break;
 		case ID_FILE_MOVIE_PLAY:
 			{
-				RestoreGUIDisplay ();  //exit DirectX
 				OpenMovieParams op;
 				memset(&op, 0, sizeof(op));
 				if(DialogBoxParam(g_hInst, MAKEINTRESOURCE(IDD_OPENMOVIE), hWnd, DlgOpenMovie, (LPARAM)&op) &&
@@ -1658,12 +1652,10 @@ LRESULT CALLBACK WinProc(
 						MessageBox( hWnd, err_string, SNES9X_INFO, MB_OK);
 					}
 				}
-				RestoreSNESDisplay ();// re-enter after dialog
 			}
 			break;
 		case ID_FILE_MOVIE_RECORD:
 			{
-				RestoreGUIDisplay ();  //exit DirectX
 				OpenMovieParams op;
 				memset(&op, 0, sizeof(op));
 				if(DialogBoxParam(g_hInst, MAKEINTRESOURCE(IDD_CREATEMOVIE), hWnd, DlgCreateMovie, (LPARAM)&op) &&
@@ -1690,7 +1682,6 @@ LRESULT CALLBACK WinProc(
 						MessageBox( hWnd, err_string, SNES9X_INFO, MB_OK);
 					}
 				}
-				RestoreSNESDisplay ();// re-enter after dialog
 			}
 			break;
 		case IDM_SNES_JOYPAD:
@@ -1815,15 +1806,9 @@ LRESULT CALLBACK WinProc(
 			//end turbo
 		case ID_OPTIONS_DISPLAY:
 			{
-				RestoreGUIDisplay ();
-
 				if(GUI.FullScreen)
 					ToggleFullScreen();
 				DialogBox(g_hInst, MAKEINTRESOURCE(IDD_NEWDISPLAY), hWnd, DlgFunky);
-
-				SwitchToGDI();
-
-				RestoreSNESDisplay ();
 
 				S9xSetWinPixelFormat ();
 				S9xInitUpdate();
@@ -1837,16 +1822,12 @@ LRESULT CALLBACK WinProc(
 			}
 
 		case ID_OPTIONS_JOYPAD:
-            RestoreGUIDisplay ();
 			DialogBox(g_hInst, MAKEINTRESOURCE(IDD_INPUTCONFIG), hWnd, DlgInputConfig);
-            RestoreSNESDisplay ();
             ChangeInputDevice ();
             break;
 
 		case ID_OPTIONS_KEYCUSTOM:
-            RestoreGUIDisplay ();
 			DialogBox(g_hInst, MAKEINTRESOURCE(IDD_KEYCUSTOM), hWnd, DlgHotkeyConfig);
-            RestoreSNESDisplay ();
             break;
 
 		case ID_EMULATION_BACKGROUNDINPUT:
@@ -1865,7 +1846,6 @@ LRESULT CALLBACK WinProc(
 
 		case ID_FILE_LOADMULTICART:
 			{
-				RestoreGUIDisplay ();
 
 				const bool ok = (1 <= DialogBoxParam(g_hInst, MAKEINTRESOURCE(IDD_MULTICART), GUI.hWnd, DlgMultiROMProc, (LPARAM)NULL));
 
@@ -1873,8 +1853,6 @@ LRESULT CALLBACK WinProc(
 				{
 					LoadROM(multiRomA, multiRomB);
 				}
-
-				RestoreSNESDisplay ();
 			}
 			break;
 
@@ -1882,13 +1860,9 @@ LRESULT CALLBACK WinProc(
 			{
 				TCHAR filename [_MAX_PATH];
 
-				RestoreGUIDisplay ();
-
 				if(DoOpenRomDialog(filename)) {
 					LoadROM(filename);
 				}
-
-				RestoreSNESDisplay ();
 			}
 			break;
 
@@ -1928,7 +1902,6 @@ LRESULT CALLBACK WinProc(
 			}
             break;
         case ID_NETPLAY_CONNECT:
-            RestoreGUIDisplay ();
 			if(1<=DialogBoxParam(g_hInst, MAKEINTRESOURCE(IDD_NETCONNECT), hWnd, DlgNetConnect,(LPARAM)&hostname))
 
             {
@@ -1943,7 +1916,6 @@ LRESULT CALLBACK WinProc(
                 }
             }
 
-			RestoreSNESDisplay ();
             break;
         case ID_NETPLAY_DISCONNECT:
             if (Settings.NetPlay)
@@ -1960,7 +1932,6 @@ LRESULT CALLBACK WinProc(
         case ID_NETPLAY_OPTIONS:
 			{
 				bool8 old_netplay_server = Settings.NetPlayServer;
-				RestoreGUIDisplay ();
 				if(1<=DialogBox(g_hInst, MAKEINTRESOURCE(IDD_NPOPTIONS), hWnd, DlgNPOptions))
 				{
 					if (old_netplay_server != Settings.NetPlayServer)
@@ -1970,7 +1941,7 @@ LRESULT CALLBACK WinProc(
 						EnableServer (!Settings.NetPlayServer);
 					}
 				}
-				RestoreSNESDisplay ();
+
 				break;
 			}
         case ID_NETPLAY_SYNC:
@@ -2086,12 +2057,11 @@ LRESULT CALLBACK WinProc(
             break;
         case ID_SOUND_OPTIONS:
 			{
-				RestoreGUIDisplay ();
 				if(1<=DialogBoxParam(g_hInst,MAKEINTRESOURCE(IDD_SOUND_OPTS),hWnd,DlgSoundConf, (LPARAM)&Settings))
 				{
 					ReInitSound();
 				}
-				RestoreSNESDisplay ();
+
 				break;
 			}
 		case ID_WINDOW_FULLSCREEN:
@@ -2201,16 +2171,14 @@ LRESULT CALLBACK WinProc(
             FreezeUnfreezeDialogPreview(TRUE);
             break;
 		case ID_CHEAT_ENTER:
-			RestoreGUIDisplay ();
 			while (DialogBox(g_hInst, MAKEINTRESOURCE(IDD_CHEATER), hWnd, DlgCheater) == NC_SEARCHDB)
 			{
 				WinSearchCheatDatabase();
 			}
 			S9xSaveCheatFile (S9xGetFilename (".cht", CHEAT_DIR));
-			RestoreSNESDisplay ();
+
 			break;
 		case ID_CHEAT_SEARCH:
-			RestoreGUIDisplay ();
 			if(!cheatSearchHWND) // create and show non-modal cheat search window
 			{
 				cheatSearchHWND = CreateDialog(g_hInst, MAKEINTRESOURCE(IDD_CHEAT_SEARCH), hWnd, DlgCheatSearch); // non-modal/modeless
@@ -2220,13 +2188,12 @@ LRESULT CALLBACK WinProc(
 			{
 				SetActiveWindow(cheatSearchHWND);
 			}
-			RestoreSNESDisplay ();
+
 			break;
 		case ID_CHEAT_SEARCH_MODAL:
-			RestoreGUIDisplay ();
 			DialogBox(g_hInst, MAKEINTRESOURCE(IDD_CHEAT_SEARCH), hWnd, DlgCheatSearch); // modal
 			S9xSaveCheatFile (S9xGetFilename (".cht", CHEAT_DIR));
-			RestoreSNESDisplay ();
+
 			break;
 		case ID_CHEAT_APPLY:
 			Settings.ApplyCheats = !Settings.ApplyCheats;
@@ -2247,9 +2214,8 @@ LRESULT CALLBACK WinProc(
 			GUI.InactivePause = !GUI.InactivePause;
 			break;
 		case ID_OPTIONS_SETTINGS:
-			RestoreGUIDisplay ();
 			DialogBox(g_hInst, MAKEINTRESOURCE(IDD_EMU_SETTINGS), hWnd, DlgEmulatorProc);
-			RestoreSNESDisplay ();
+
 			break;
         case ID_EMULATION_HACKS:
 			if (MessageBoxA(hWnd,
@@ -2260,17 +2226,12 @@ LRESULT CALLBACK WinProc(
 				MB_ICONWARNING | MB_OKCANCEL) != IDOK)
 				break;
 
-            RestoreGUIDisplay();
 			i = DialogBox(g_hInst, MAKEINTRESOURCE(IDD_DIALOG_HACKS), hWnd, DlgEmulatorHacksProc);
             if (i == 1)
                 S9xReset();
-            else
-                RestoreSNESDisplay();
             break;
 		case ID_HELP_ABOUT:
-			RestoreGUIDisplay ();
 			DialogBox(g_hInst, MAKEINTRESOURCE(IDD_ABOUT), hWnd, DlgAboutProc);
-			RestoreSNESDisplay ();
 			break;
 		case ID_FRAME_ADVANCE:
 			Settings.Paused = true;
@@ -2292,9 +2253,7 @@ LRESULT CALLBACK WinProc(
 			break;
 #endif
 		case IDM_ROM_INFO:
-			RestoreGUIDisplay ();
 			DialogBox(g_hInst, MAKEINTRESOURCE(IDD_ROM_INFO), hWnd, DlgInfoProc);
-			RestoreSNESDisplay ();
 			break;
 		default:
 			if ((wParam & 0xffff) >= 0xFF00)
@@ -2336,7 +2295,6 @@ LRESULT CALLBACK WinProc(
 		S9xSetPause (PAUSE_MENU);
 		CheckMenuStates ();
 
-		SwitchToGDI();
 		DrawMenuBar(GUI.hWnd);
 		break;
 
@@ -2577,11 +2535,9 @@ LRESULT CALLBACK WinProc(
 		S9xMessage (0, 0, NetPlay.WarningMsg);
 		break;
 	case WM_USER + 1:
-		RestoreGUIDisplay ();
 		S9xRestoreWindowTitle ();
 		MessageBox (GUI.hWnd, _tFromChar(NetPlay.ErrorMsg),
 			SNES9X_NP_ERROR, MB_OK | MB_ICONSTOP);
-		RestoreSNESDisplay ();
 		break;
 	case WM_USER:
 		if (NetPlay.ActionMsg [0] == 0)
@@ -2596,13 +2552,11 @@ LRESULT CALLBACK WinProc(
 #if 0
 		if ((int) lParam >= 0)
 		{
-			RestoreGUIDisplay ();
 			DialogBox(g_hInst, MAKEINTRESOURCE(IDD_NETPLAYPROGRESS), hWnd, DlgNPProgress);
 		}
 		else
 		{
 			DialogBox(g_hInst, MAKEINTRESOURCE(IDD_NETPLAYPROGRESS), hWnd, DlgNPProgress);
-			RestoreSNESDisplay ();
 		}
 #endif
 		break;
@@ -3960,6 +3914,9 @@ static bool LoadROM(const TCHAR *filename, const TCHAR *filename2 /*= NULL*/) {
 		Settings.StopEmulation = !LoadROMPlain(filename);
 
 	if (!Settings.StopEmulation) {
+		// Entrypoint for new socket server feature
+		//..
+
 		bool8 loadedSRAM = Memory.LoadSRAM (S9xGetFilename (".srm", SRAM_DIR).c_str());
 		if(!loadedSRAM) // help migration from earlier Snes9x versions by checking ROM directory for savestates
 			Memory.LoadSRAM (S9xGetFilename (".srm", ROMFILENAME_DIR).c_str());
@@ -4003,7 +3960,6 @@ static bool LoadROM(const TCHAR *filename, const TCHAR *filename2 /*= NULL*/) {
 
 bool8 S9xLoadROMImage (const TCHAR *string)
 {
-    RestoreGUIDisplay ();
     TCHAR *buf = new TCHAR [200 + lstrlen (string)];
     _stprintf (buf, TEXT("The NetPlay server is requesting you load the following game:\n '%s'"),
 		string);
@@ -4309,7 +4265,7 @@ BOOL CreateToolTip(int toolID, HWND hDlg, const TCHAR* pText)
     toolInfo.hwnd = hDlg;
     toolInfo.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
     toolInfo.uId = (UINT_PTR)hwndTool;
-    toolInfo.lpszText = pText;
+	toolInfo.lpszText = const_cast<LPTSTR>(pText);		//toolInfo.lpszText = pText;
     SendMessage(hwndTip, TTM_ADDTOOL, 0, (LPARAM)&toolInfo);
 
     return TRUE;
@@ -6089,38 +6045,46 @@ INT_PTR CALLBACK DlgOpenROMProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPara
 			hSplit=CreateWindow(TEXT("S9xSplitter"), TEXT(""),WS_CHILD|WS_VISIBLE , p.x, p.y, listRect.left-treeRect.right , listRect.bottom-listRect.top, hDlg, (HMENU)IDC_ROM_SPLITTER, g_hInst,0);
 
 			LVCOLUMN col;
-			static const LPTSTR temp1 = ROM_COLUMN_FILENAME;
+			wchar_t tempBuffer[256];
+
+			wcsncpy(tempBuffer, ROM_COLUMN_FILENAME, _countof(tempBuffer) - 1);
+			tempBuffer[_countof(tempBuffer) - 1] = L'\0';		//static const LPTSTR temp1 = ROM_COLUMN_FILENAME;
 			memset(&col, 0, sizeof(LVCOLUMN));
 			col.mask=LVCF_FMT|LVCF_ORDER|LVCF_TEXT|LVCF_WIDTH;
 			col.fmt=LVCFMT_LEFT;
 			col.iOrder=0;
 			col.cx= GUI.customRomDlgSettings.columnFilename;
 			col.cchTextMax=5;
-			col.pszText=temp1;
+			col.pszText = tempBuffer;
+			std::fill_n(tempBuffer, 256, L'\0');		//col.pszText=temp1;
 
 			ListView_InsertColumn(romList,    0,   &col);
 
-			static const LPTSTR temp2 = ROM_COLUMN_DESCRIPTION;
+			wcsncpy(tempBuffer, ROM_COLUMN_DESCRIPTION, _countof(tempBuffer) - 1);
+			tempBuffer[_countof(tempBuffer) - 1] = L'\0';		//static const LPTSTR temp2 = ROM_COLUMN_DESCRIPTION;
 			memset(&col, 0, sizeof(LVCOLUMN));
 			col.mask=LVCF_FMT|LVCF_ORDER|LVCF_TEXT|LVCF_WIDTH|LVCF_SUBITEM;
 			col.fmt=LVCFMT_LEFT;
 			col.iOrder=1;
 			col.cx= GUI.customRomDlgSettings.columnDescription;
 			col.cchTextMax=32;
-			col.pszText=temp2;
+			col.pszText = tempBuffer;
+			std::fill_n(tempBuffer, 256, L'\0');		//col.pszText=temp2;
 			col.iSubItem=1;
 
 			ListView_InsertColumn(romList,    1,   &col);
 
 
-			static const LPTSTR temp3 = ROM_COLUMN_SIZE;
+			wcsncpy(tempBuffer, ROM_COLUMN_SIZE, _countof(tempBuffer) - 1);
+			tempBuffer[_countof(tempBuffer) - 1] = L'\0';		//static const LPTSTR temp3 = ROM_COLUMN_SIZE;
 			memset(&col, 0, sizeof(LVCOLUMN));
 			col.mask=LVCF_FMT|LVCF_ORDER|LVCF_TEXT|LVCF_WIDTH|LVCF_SUBITEM;
 			col.fmt=LVCFMT_LEFT;
 			col.iOrder=2;
 			col.cx= GUI.customRomDlgSettings.columnSize;
 			col.cchTextMax=32;
-			col.pszText=temp3;
+			col.pszText = tempBuffer;
+			std::fill_n(tempBuffer, 256, L'\0');		//col.pszText=temp3;
 			col.iSubItem=2;
 
 			ListView_InsertColumn(romList,    2,   &col);
@@ -7140,7 +7104,7 @@ bool RegisterExt(TCHAR *ext) {
     TCHAR   *szExeName;
 	HKEY	hKey;
 
-    if(!ext || ext==TEXT('\0'))
+	if (!ext || *ext == TEXT('\0'))	//if(!ext || ext==TEXT('\0'))
         return false;
 
     GetModuleFileName(NULL, szExePath, PATH_MAX);
@@ -7612,9 +7576,6 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
             auto inserted_index = SendDlgItemMessage(hDlg, IDC_OUTPUTMETHOD, CB_ADDSTRING, 0, text);
             SendDlgItemMessage(hDlg, IDC_OUTPUTMETHOD, CB_SETITEMDATA, inserted_index, value);
         };
-#if DIRECTDRAW_SUPPORT
-        InsertOutputMethod((LPARAM)TEXT("DirectDraw"), DIRECTDRAW);
-#endif
         InsertOutputMethod((LPARAM)TEXT("Direct3D"), DIRECT3D);
         InsertOutputMethod((LPARAM)TEXT("OpenGL"), OPENGL);
         InsertOutputMethod((LPARAM)TEXT("Vulkan"), VULKAN);
@@ -7879,8 +7840,8 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 
 				const int newScaleScale = max(GetFilterScale(GUI.Scale), GetFilterScale(GUI.ScaleHiRes));
 
-				if(oldScaleScale != newScaleScale)
-					RestoreSNESDisplay();
+//				if(oldScaleScale != newScaleScale)
+//					RestoreSNESDisplay();
 
 				// refresh screen, so the user can see the new filter
 				// (assuming the dialog box isn't completely covering the game window)
@@ -7907,8 +7868,8 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 
 				const int newScaleScale = max(GetFilterScale(GUI.Scale), GetFilterScale(GUI.ScaleHiRes));
 
-				if(oldScaleScale != newScaleScale)
-					RestoreSNESDisplay();
+//				if(oldScaleScale != newScaleScale)
+//					RestoreSNESDisplay();
 
 				// refresh screen, so the user can see the new filter
 				// (assuming the dialog box isn't completely covering the game window)

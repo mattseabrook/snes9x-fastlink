@@ -4,14 +4,55 @@ This is a fork of the official source code repository for the Snes9x project, cl
 
 **Table-of-Contents**
 
+- [SNES9X Proprietary SNES Memory Architecture](#snes9x-proprietary-snes-memory-architecture)
+  - [CMemory struct](#cmemory-struct)
+- [TODO](#todo)
 - [CHANGELOG](#changelog)
   - [v0.1 - 2024-02-09](#v01---2024-02-09)
     - [Lifted the project from VS 2017 to VS 2022](#lifted-the-project-from-vs-2017-to-vs-2022)
-    - [Removal of the DirectX SDK](#removal-of-the-directx-sdk)
+    - [Switching from DirectX SDK to Windows 10 SDK Dependency](#switching-from-directx-sdk-to-windows-10-sdk-dependency)
+    - [XAudio2](#xaudio2)
+    - [DirectDraw Deprecation](#directdraw-deprecation)
     - [fmtlib - External Dependency Warnings](#fmtlib---external-dependency-warnings)
     - [Const Correctness](#const-correctness)
     - [Warning C4244](#warning-c4244)
 
+# SNES9X Proprietary SNES Memory Architecture
+
+## CMemory struct
+
+| Name                  | Type                 | Description                                                                              |
+| --------------------- | -------------------- | ---------------------------------------------------------------------------------------- |
+| RAM                   | uint8                | The working / state memory of the Super Nintendo itself                                  |
+| ROMStorage            | std::vector<uint8_t> | This is the Byte Array that contains the ROM file of the Super Nintendo cartridge (game) |
+| ROM                   | uint8 *              | This is the pointer to the above, as the size will be dynamic                            |
+| SRAMStorage           | std::vector<uint8_t> | This is the Byte Array that contains the Save State / Battery backed-up storage          |
+| SRAM                  | uint8 *              | This is t he pointer to the above, as the size will be dynamic                           |
+| SRAM_SIZE             | const size_t         | Default: `0x80000` but set to the exact size of the SRAM per game                        |
+| VRAM                  | uint8                | Default: `0x10000`. This is the Video / PPU RAM of the Super Nintendo                    |
+| ROMFilename           | std::string          | The name of the Super Nintendo ROM file (game name) as it is on the user's hard drive    |
+| ROMName               | char                 | Length set to a define `ROM_NAME_LEN` - game name as it is in the ROM file               |
+| ROMId                 | char                 | Length set to `5`                                                                        |
+| CompanyId             | int32                |                                                                                          |
+| ROMRegion             | uint8                |                                                                                          |
+| ROMSpeed              | uint8                |                                                                                          |
+| ROMType               | uint8                |                                                                                          |
+| ROMSize               | uint8                |                                                                                          |
+| ROMChecksum           | uint32               |                                                                                          |
+| ROMComplementChecksum | uint32               |                                                                                          |
+| ROMCRC32              | uint32               |                                                                                          |
+| ROMSHA256             | unsigned char        | 32                                                                                       |
+| ROMFramesPerSecond    | int32                |                                                                                          |
+| HiROM                 | bool8                |                                                                                          |
+| LoROM                 | bool8                |                                                                                          |
+| SRAMSize              | uint8                |                                                                                          |
+| SRAMMask              | uint32               |                                                                                          |
+| CalculatedSize        | uint32               |                                                                                          |
+| CalculatedChecksum    | uint32               |                                                                                          |
+
+# TODO
+
+- Document the 
 # CHANGELOG
 
 ## v0.1 - 2024-02-09
@@ -22,11 +63,26 @@ This is a fork of the official source code repository for the Snes9x project, cl
 - Platform Toolset changed from `VS 2017 v141_xp` to `VS 2022 v143`
 - C++ Language Standard changed from `C++ 17` to `C++ 20`
 
-### Removal of the DirectX SDK
+### Switching from DirectX SDK to Windows 10 SDK Dependency
+
+Review my updated compiling instructions, no DirectX Run-times/SDK downloads are required any longer. Here's what's actually changed:
 
 - Deleted `dxerr.h` and `dxerr.cpp`
-- Removed all instances of `#include "dxerr.h"` through the entire code-base
-- `XAudio2` issues
+- Removed all instances of `#include "dxerr.h` through the entire code-base
+- Updated Direct3D initialization and rendering logic to be compatible with the Windows 10 SDK
+- To avoid overhauling from D3D9 to a newer version, we are now just linking against `d3d9.lib`
+
+### XAudio2
+
+x
+
+### DirectDraw Deprecation
+
+Completely removed `DirectDraw` from the code base. Here's exactly what changed:
+
+- Deleted `ddraw` folder.
+- Deleted `CDirectDraw.h` and `CDirectDraw.cpp`
+- Lorem Ipsum
   
 ### fmtlib - External Dependency Warnings
 

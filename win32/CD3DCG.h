@@ -8,7 +8,6 @@
 #define CGD3DCG_H
 
 #include <vector>
-#include <d3d9.h>
 #include <windows.h>
 #include "CCGShader.h"
 #include <vector>
