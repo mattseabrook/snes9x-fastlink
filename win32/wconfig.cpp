@@ -757,7 +757,7 @@ void WinRegisterConfigItems()
 	AddBoolC("DisplayFrameCount", Settings.DisplayMovieFrame, true, "true to show the frame count when a movie is playing");
 #undef CATEGORY
 #define CATEGORY "Display\\Win"
-	AddUIntC("OutputMethod", GUI.outputMethod, 1, "0=DirectDraw, 1=Direct3D, 2=OpenGL");
+	AddUIntC("OutputMethod", GUI.outputMethod, 0, "0=Direct3D, 1=OpenGL, 2=Vulkan");
 	AddUIntC("FilterType", GUI.Scale, 0, filterString);
 	AddUIntC("FilterHiRes", GUI.ScaleHiRes, 0, filterString2);
 	AddBoolC("BlendHiRes", GUI.BlendHiRes, true, "true to horizontally blend Hi-Res images (better transparency effect on filters that do not account for this)");
@@ -947,6 +947,10 @@ void WinRegisterConfigItems()
     AddUIntC("MaxSpriteTilesPerLine", Settings.MaxSpriteTilesPerLine, 34, "Max sprite tiles rendered per line. Default = 34, Unlimited ~= 128");
 	AddUIntC("SuperFXClockMultiplier", Settings.SuperFXClockMultiplier, 100, "SuperFX speed, in percent (default 100)");
     AddBoolC("SeparateEchoBuffer", Settings.SeparateEchoBuffer, false, "Separate echo buffer from APU ram. For old hacks only.");
+#undef CATEGORY
+#define	CATEGORY "MemoryServe"
+	AddBool("Enabled", Settings.MemoryServe, false);
+	AddInt("Port", Settings.MemServePort, 9000);
 #undef CATEGORY
 }
 

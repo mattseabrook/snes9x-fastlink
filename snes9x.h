@@ -314,6 +314,9 @@ struct SSettings
 	int	OneSlowClockCycle;
 	int	TwoClockCycles;
 	int	MaxSpriteTilesPerLine;
+
+	bool	MemoryServe;	/* memserve feature enabled */
+	int     MemServePort;	/* memserve port */
 };
 
 struct SSNESGameFixes
