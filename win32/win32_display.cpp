@@ -101,7 +101,7 @@ returns true if successful, false otherwise
 */
 bool WinDisplayReset(void)
 {
-	const TCHAR* driverNames[] = { TEXT("DirectDraw"), TEXT("Direct3D"), TEXT("OpenGL"), TEXT("Vulkan") };
+	const TCHAR* driverNames[] = { TEXT("Direct3D"), TEXT("OpenGL"), TEXT("Vulkan") };
 	static bool VulkanUsed = false;
 	static bool OpenGLUsed = false;
 	S9xDisplayOutput->DeInitialize();

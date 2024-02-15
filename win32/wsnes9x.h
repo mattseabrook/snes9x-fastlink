@@ -107,8 +107,7 @@ enum RenderFilter{
 };
 
 enum OutputMethod {
-	DIRECTDRAW = 0,
-	DIRECT3D,
+	DIRECT3D = 0,
 	OPENGL,
 	VULKAN
 };

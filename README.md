@@ -9,6 +9,7 @@ This is a fork of the official source code repository for the Snes9x project, cl
     - [CMemory struct](#cmemory-struct)
 - [TODO](#todo)
 - [CHANGELOG](#changelog)
+  - [v0.2 -](#v02--)
   - [v0.1 - 2024-02-09](#v01---2024-02-09)
     - [Lifted the project from VS 2017 to VS 2022](#lifted-the-project-from-vs-2017-to-vs-2022)
     - [Switching from DirectX SDK to Windows 10 SDK Dependency](#switching-from-directx-sdk-to-windows-10-sdk-dependency)
@@ -63,7 +64,31 @@ This is a fork of the official source code repository for the Snes9x project, cl
 
 # CHANGELOG
 
+## v0.2 -
+
+- Added `bool8 MemoryServe;` and `int MemServePort;` to the `SSettings` struct definition in `snes9x.h`
+- Added the following code to `wconfig.cpp` to add support for our new feature into `snes9x.conf`:
+```cpp
+#define	CATEGORY "MemoryServe"
+	AddBool("Enabled", Settings.MemoryServe, false);
+	AddInt("Port", Settings.MemServePort, 9000);
+#undef CATEGORY
+```
+- Emulation menu (`wsnes9x.cpp`):
+```cpp
+mii.fState = Settings.MemoryServe ? MFS_CHECKED : MFS_UNCHECKED;
+SetMenuItemInfo(GUI.hMenu, ID_EMULATION_MEMSERVE, FALSE, &mii);
+
+WM_COMMAND:
+		case ID_EMULATION_MEMSERVE:
+			MessageBox(hWnd, TEXT("All your base are belong to us."), TEXT("Notice"), MB_OK);
+			break;
+```
+
+
 ## v0.1 - 2024-02-09
+
+Efforts in `v0.1` were related to getting the project to compile in `VS 2022`, targeting `C++ 20` and the `Windows 10 SDK`, as well as removing deprecated features, and updating libraries.
 
 ### Lifted the project from VS 2017 to VS 2022
 
@@ -90,12 +115,10 @@ Completely removed `DirectDraw` from the code base. Here's exactly what changed:
 
 - Deleted `ddraw` folder.
 - Deleted `CDirectDraw.h` and `CDirectDraw.cpp`
-```
-delete mode 100644 win32/CDirectDraw.cpp
- delete mode 100644 win32/CDirectDraw.h
- delete mode 100644 win32/ddraw/ddraw_x64.lib
- delete mode 100644 win32/ddraw/ddraw_x86.lib
- ```
+- Removed `TEXT("DirectDraw")` from the `const TCHAR* driverNames[]` in `win32_display.cpp`
+- Removed the pragma command to link with `ddraw*.lib`
+- Removed `DIRECTDRAW = 0,` from the `OutputMethod` enum in `wsnes9x.h` and set `DIRECT3D` to `0`
+- Removed checks like this: `GUI.outputMethod!=DIRECTDRAW`
   
 ### fmtlib - External Dependency Warnings
 

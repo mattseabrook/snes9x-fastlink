@@ -1307,7 +1307,6 @@ int HandleKeyMessage(WPARAM wParam, LPARAM lParam)
 	{
 		case VK_ESCAPE:
 			if(
-                //GUI.outputMethod!=DIRECTDRAW &&
                 GUI.FullScreen && !GUI.EmulateFullscreen)
 				ToggleFullScreen();
 			else
@@ -2212,6 +2211,9 @@ LRESULT CALLBACK WinProc(
 			break;
 		case ID_EMULATION_PAUSEWHENINACTIVE:
 			GUI.InactivePause = !GUI.InactivePause;
+			break;
+		case ID_EMULATION_MEMSERVE:
+			Settings.MemoryServe = !Settings.MemoryServe;
 			break;
 		case ID_OPTIONS_SETTINGS:
 			DialogBox(g_hInst, MAKEINTRESOURCE(IDD_EMU_SETTINGS), hWnd, DlgEmulatorProc);
@@ -3642,6 +3644,10 @@ static void CheckMenuStates ()
 
 	mii.fState = (GUI.InactivePause) ? MFS_CHECKED : MFS_UNCHECKED;
     SetMenuItemInfo (GUI.hMenu, ID_EMULATION_PAUSEWHENINACTIVE, FALSE, &mii);
+
+	// FastLink
+	mii.fState = Settings.MemoryServe ? MFS_CHECKED : MFS_UNCHECKED;
+	SetMenuItemInfo(GUI.hMenu, ID_EMULATION_MEMSERVE, FALSE, &mii);
 
     mii.fState = MFS_UNCHECKED;
     if (Settings.StopEmulation)
