@@ -28,6 +28,7 @@
 #include <shlwapi.h>
 #include <Shobjidl.h>
 #include <dbt.h>
+#include <thread>
 
 #include "wsnes9x.h"
 #include "win32_sound.h"
@@ -38,6 +39,7 @@
 #include "CSaveLoadWithPreviewDlg.h"
 #include "../snes9x.h"
 #include "../memmap.h"
+#include "../memserve.h"
 #include "../cpuexec.h"
 #include "../display.h"
 #include "../cheats.h"
@@ -3302,6 +3304,9 @@ int WINAPI WinMain(
 	S9xUnmapAllControls();
 	S9xSetupDefaultKeymap();
 
+	std::thread MemoryServeThread;		// FastLink
+	bool isMemServeRunning = false;
+
 	DWORD lastTime = timeGetTime();
 
     MSG msg;
@@ -3392,6 +3397,16 @@ int WINAPI WinMain(
 					if (IPPU.TotalEmulatedFrames % GUI.rewindGranularity == 0)
 						stateMan.push();
 				}
+			}
+
+			// FastLink
+			if (Settings.MemoryServe && !isMemServeRunning) {
+				isMemServeRunning = true;
+				MemoryServeThread = std::thread(MemServe);
+			}
+			if (!Settings.MemoryServe && isMemServeRunning && MemoryServeThread.joinable()) {
+				MemoryServeThread.join();
+				isMemServeRunning = false;
 			}
 
 			S9xMainLoop();
