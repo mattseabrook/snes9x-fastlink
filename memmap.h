@@ -17,7 +17,7 @@
 #include <cstdint>
 
 struct CMemory
-{
+{ 
 	enum
 	{ MAX_ROM_SIZE = 0xC00000 };
 
