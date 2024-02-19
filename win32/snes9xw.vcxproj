@@ -479,7 +479,6 @@
     <ClInclude Include="InputCustom.h" />
     <ClInclude Include="IS9xDisplayOutput.h" />
     <ClInclude Include="IS9xSoundOutput.h" />
-    <ClInclude Include="json.hpp" />
     <ClInclude Include="render.h" />
     <ClInclude Include="rsrc\resource.h" />
     <ClInclude Include="win32_display.h" />

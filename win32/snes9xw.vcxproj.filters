@@ -366,9 +366,6 @@
     <ClInclude Include="..\memserve.h">
       <Filter>FastLink</Filter>
     </ClInclude>
-    <ClInclude Include="json.hpp">
-      <Filter>FastLink</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\bsx.cpp">
