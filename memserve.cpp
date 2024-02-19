@@ -35,7 +35,6 @@
 void MemServe()
 {
 #ifdef _WIN32
-    MessageBox(NULL, L"Memory Server is running", L"Debug/Test", MB_OK);
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         fprintf(stderr, "WSAStartup failed with error: %d\n", WSAGetLastError());
@@ -53,7 +52,7 @@ void MemServe()
 #ifdef _WIN32
         fprintf(stderr, "Can't open socket with error: %d\n", WSAGetLastError());
 #else
-        err(1, "can't open socket");
+        fprintf(stderr, "Can't open socket\n");
 #endif
         exit(1);
     }
@@ -62,7 +61,7 @@ void MemServe()
 #ifdef _WIN32
         fprintf(stderr, "Can't set SO_REUSEADDR with error: %d\n", WSAGetLastError());
 #else
-        err(1, "Can't set SO_REUSEADDR");
+        fprintf(stderr, "Can't set SO_REUSEADDR\n");
 #endif
         exit(1);
     }
@@ -77,8 +76,7 @@ void MemServe()
         closesocket(sock);
         fprintf(stderr, "Can't bind with error: %d\n", WSAGetLastError());
 #else
-        close(sock);
-        err(1, "Can't bind");
+        fprintf(stderr, "Can't bind\n");
 #endif
         exit(1);
     }
@@ -91,31 +89,34 @@ void MemServe()
 #ifdef _WIN32
             fprintf(stderr, "Can't accept with error: %d\n", WSAGetLastError());
 #else
-            perror("Can't accept");
+            fprintf(stderr, "Can't accept\n");
 #endif
             continue;
         }
 
-        json j = ramToJson(Memory.RAM, sizeof(Memory.RAM) / sizeof(Memory.RAM[0]));
-        std::string jsonResponse = j.dump(2);
-
-        std::string httpResponse = "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/json\r\n\r\n" +
-            jsonResponse + "\r\n";
+        std::string responseContent = "Hello, World!";
+        std::string headers =
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: " + std::to_string(responseContent.length()) + "\r\n\r\n";
 
 #ifdef _WIN32
-        send(client_fd, httpResponse.c_str(), sizeof(httpResponse) - 1, 0); // -1:'\0'
+        send(client_fd, headers.c_str(), headers.length(), 0);
+        send(client_fd, responseContent.c_str(), responseContent.length(), 0);
         closesocket(client_fd);
 #else
-        write(client_fd, httpResponse.c_str(), sizeof(httpResponse) - 1); // -1:'\0'
+        write(client_fd, headers.c_str(), headers.size());
+        write(client_fd, responseContent.c_str(), responseContent.length());
         close(client_fd);
 #endif
+
+        // Potentially remove this after adjust the while loop itself- TODO
         if (!Settings.MemoryServe) {
-			break;
-		}
+            break;
+        }
     }
 
 #ifdef _WIN32
     WSACleanup();
 #endif
-}   
+}
