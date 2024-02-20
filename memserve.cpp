@@ -82,6 +82,17 @@ void MemServe()
     }
 
     listen(sock, 5);
+
+#ifdef _WIN32
+    int bytesReceived;
+    int bytesSent;
+#else
+	ssize_t bytesReceived;
+    ssize_t bytesSent;
+#endif
+    std::vector<char> buffer(8192);
+    std::string request;
+
     while (true) {
         client_fd = accept(sock, (struct sockaddr*)&cli_addr, &sin_len);
 
@@ -94,19 +105,86 @@ void MemServe()
             continue;
         }
 
-        std::string responseContent = "Hello, World!";
+        do {
+            bytesReceived = recv(client_fd, buffer.data(), buffer.size(), 0);
+
+            if (bytesReceived > 0) {
+                request.append(buffer.data(), bytesReceived);
+            }
+            else if (bytesReceived == 0) {
+                break;
+            }
+            else {
+#ifdef _WIN32
+                closesocket(client_fd);
+#else
+                close(client_fd);
+#endif
+
+                return;
+            }
+        } while (request.find("\r\n\r\n") == std::string::npos);
+
+        const char* ramData = reinterpret_cast<const char*>(Memory.RAM);
+        size_t ramSize = sizeof(Memory.RAM);
+
         std::string headers =
             "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: " + std::to_string(responseContent.length()) + "\r\n\r\n";
+            "Content-Type: application/octet-stream\r\n"
+            "Content-Length: " + std::to_string(ramSize) + "\r\n"
+            "Connection: close\r\n"
+            "Access-Control-Allow-Origin: *\r\n\r\n";
 
 #ifdef _WIN32
-        send(client_fd, headers.c_str(), headers.length(), 0);
-        send(client_fd, responseContent.c_str(), responseContent.length(), 0);
+        bytesSent = send(client_fd, headers.c_str(), headers.length(), 0);
+        if (bytesSent == SOCKET_ERROR) {
+            fprintf(stderr, "Socket error: %d\n", WSAGetLastError());
+            closesocket(client_fd);
+#else
+        bytesSent = write(client_fd, headers.c_str(), headers.size());
+        if (bytesSent < 0) {
+            fprintf(stderr, "Socket error\n");
+            close(client_fd);
+#endif
+            return;
+        }
+
+        if (static_cast<size_t>(bytesSent) != headers.length()) {
+#ifdef _WIN32
+            fprintf(stderr, "Not all Header data was sent: %d\n", WSAGetLastError());
+            closesocket(client_fd);
+#else
+            fprintf(stderr, "Not all Header data was sent\n");
+            close(client_fd);
+#endif
+            return;
+        }
+
+        size_t totalSent = 0;
+
+        while (totalSent < ramSize) {
+#ifdef _WIN32
+            bytesSent = send(client_fd, ramData + totalSent, ramSize - totalSent, 0);
+            if (bytesSent == SOCKET_ERROR) {
+                fprintf(stderr, "Not all data was sent: %d\n", WSAGetLastError());
+                closesocket(client_fd);
+#else
+            bytesSent = send(client_fd, ramData + totalSent, ramSize - totalSent, MSG_NOSIGNAL);
+            if (bytesSent < 0) {
+                fprintf(stderr, "Not all data was sent\n");
+                close(client_fd);
+#endif
+                return;
+            }
+
+            totalSent += bytesSent;
+        }
+
+#ifdef _WIN32
+        shutdown(client_fd, SD_SEND);
         closesocket(client_fd);
 #else
-        write(client_fd, headers.c_str(), headers.size());
-        write(client_fd, responseContent.c_str(), responseContent.length());
+        shutdown(client_fd, SHUT_WR);
         close(client_fd);
 #endif
 
