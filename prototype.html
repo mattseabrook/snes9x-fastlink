@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fetch Octet-Stream</title>
+    <script>
+        async function fetchAndStoreByteArray() {
+            try {
+                const response = await fetch('http://127.0.0.1:9000/');
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                const blob = await response.blob();
+                const arrayBuffer = await blob.arrayBuffer();
+                const byteArray = new Uint8Array(arrayBuffer);
+                console.log(byteArray);
+            } catch (error) {
+                console.error('There has been a problem with your fetch operation:', error);
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <button onclick="fetchAndStoreByteArray()">Fetch Data</button>
+</body>
+
+</html>
