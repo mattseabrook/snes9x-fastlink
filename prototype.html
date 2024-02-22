@@ -2,29 +2,158 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fetch Octet-Stream</title>
-    <script>
-        async function fetchAndStoreByteArray() {
-            try {
-                const response = await fetch('http://127.0.0.1:9000/');
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                const blob = await response.blob();
-                const arrayBuffer = await blob.arrayBuffer();
-                const byteArray = new Uint8Array(arrayBuffer);
-                console.log(byteArray);
-            } catch (error) {
-                console.error('There has been a problem with your fetch operation:', error);
-            }
-        }
-    </script>
+    <title>snes9x-FastLink v.0.1</title>
 </head>
 
 <body>
-    <button onclick="fetchAndStoreByteArray()">Fetch Data</button>
+    <canvas id="canvas"></canvas>
+    <div id="contextMenu"></div>
+    <script>
+        var snes9x_FastLink = {
+            RAM: new Uint8Array(131072),
+            ui: {
+                canvas: document.getElementById('canvas'),
+                context: document.getElementById('canvas').getContext('2d'),
+                masterColor: ['hsl(280, 100%, ', 'hsl(0, 100%, ', 'hsl(120, 100%, ', 'hsl(240, 100%, '],
+                getColorForByteValue: function (value) {
+                    if (value === 0) return 'hsl(0, 0%, 0%)';
+                    let selectedHue = this.masterColor.findIndex(color => color === this.state.color) * 90;
+                    const lightness = 25 + (value / 255) * 50;
+                    return `hsl(${selectedHue}, 100%, ${lightness}%)`;
+                },
+                state: JSON.parse(localStorage.getItem('snes9x_FastLink_state')) || { view: 'RAM', color: 'hsl(280, 100%, ' },
+                init: function () {
+                    Object.assign(this.canvas.style, { display: 'block', width: '100vw', height: '100vh' });
+                    Object.assign(document.body.style, { background: '#000000', margin: '0', padding: '0', width: '100%', height: '100%', overflow: 'hidden' });
+                    this.canvas.width = window.innerWidth;
+                    this.canvas.height = window.innerHeight;
+                    this.setupContextMenu();
+                },
+                setupContextMenu: function () {
+                    const menu = document.getElementById('contextMenu');
+                    Object.assign(menu.style, {
+                        display: 'none',
+                        position: 'absolute',
+                        zIndex: '1000',
+                        background: '#ccc',
+                        padding: '0',
+                        margin: '0',
+                        listStyle: 'none',
+                    });
+
+                    this.canvas.oncontextmenu = e => {
+                        e.preventDefault();
+                        menu.style.display = 'block';
+                        menu.style.left = `${e.pageX}px`;
+                        menu.style.top = `${e.pageY}px`;
+                    };
+
+                    document.addEventListener('click', () => menu.style.display = 'none');
+
+                    // Populate menu with "View" and "Color" options
+                    this.populateMenu(menu, `View &#x25B8;`, ['RAM', 'SRAM', 'VRAM']);
+                    this.populateMenu(menu, `Color &#x25B8;`, ['Purple', 'Red', 'Green', 'Blue']);
+                },
+                populateMenu: function (menu, title, options) {
+                    const menuItem = document.createElement('li');
+                    menuItem.innerHTML = title;
+                    menuItem.style.cursor = 'pointer';
+                    menuItem.style.listStyle = 'none';
+                    menuItem.style.padding = '5px';
+
+                    const subMenu = document.createElement('ul');
+                    subMenu.style.position = 'absolute';
+                    subMenu.style.margin = '0';
+                    subMenu.style.padding = '5px';
+                    subMenu.style.background = '#ccc';
+                    subMenu.style.listStyle = 'none';
+                    subMenu.style.whiteSpace = 'nowrap';
+                    subMenu.style.display = 'none';
+
+                    menuItem.onmouseenter = function (e) {
+                        const menuItemRect = e.target.getBoundingClientRect();
+                        subMenu.style.display = 'block';
+                        subMenu.style.left = menuItemRect.width + 'px'; // Adjust the left position based on the width of the menuItem
+                        subMenu.style.top = menuItem.offsetTop + 'px'; // Adjust the top position to align with the menuItem
+                    };
+
+                    menuItem.onmouseleave = function () {
+                        subMenu.style.display = 'none';
+                    };
+
+                    options.forEach(option => {
+                        const optionItem = document.createElement('li');
+                        optionItem.textContent = option;
+                        optionItem.style.cursor = 'pointer';
+                        optionItem.style.padding = '5px';
+                        optionItem.onclick = () => {
+                            this.state[title.toLowerCase()] = option;
+                            localStorage.setItem('snes9x_FastLink_state', JSON.stringify(this.state));
+                            subMenu.style.display = 'none'; // Optionally hide the submenu
+                        };
+                        subMenu.appendChild(optionItem);
+                    });
+
+                    menuItem.appendChild(subMenu);
+                    menu.appendChild(menuItem);
+                }
+            },
+            fetchRAMData: async function () {
+                try {
+                    const response = await fetch('http://127.0.0.1:9000/');
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    const buffer = await response.arrayBuffer();
+                    this.RAM = new Uint8Array(buffer);
+                } catch (error) {
+                    console.error('Failed to fetch RAM data:', error);
+                    for (let i = 0; i < snes9x_FastLink.RAM.length; i++) {
+                        this.RAM[i] = Math.floor(Math.random() * 256);
+                    }
+                }
+            },
+            helpers: {
+                resizeCanvas: () => {
+                    snes9x_FastLink.ui.canvas.width = window.innerWidth;
+                    snes9x_FastLink.ui.canvas.height = window.innerHeight;
+                    draw();
+                }
+            }
+        };
+
+        function draw() {
+            const { RAM, ui } = snes9x_FastLink;
+            const totalTiles = RAM.length,
+                tilesWidth = Math.round(Math.sqrt(totalTiles * (ui.canvas.width / ui.canvas.height))),
+                tileWidth = ui.canvas.width / tilesWidth,
+                tileHeight = ui.canvas.height / (totalTiles / tilesWidth);
+
+            ui.context.fillStyle = 'black';
+            ui.context.fillRect(0, 0, ui.canvas.width, ui.canvas.height);
+
+            RAM.forEach((byte, i) => {
+                ui.context.fillStyle = ui.getColorForByteValue(byte);
+                ui.context.fillRect((i % tilesWidth) * tileWidth, Math.floor(i / tilesWidth) * tileHeight, tileWidth, tileHeight);
+            });
+        }
+
+        snes9x_FastLink.ui.init();
+
+        snes9x_FastLink.ui.context.font = '30px monospace';
+        snes9x_FastLink.ui.context.fillStyle = 'white';
+        snes9x_FastLink.ui.context.textAlign = 'center';
+        snes9x_FastLink.ui.context.fillText('SNES9X-FastLink', snes9x_FastLink.ui.canvas.width / 2, snes9x_FastLink.ui.canvas.height / 2);
+
+        snes9x_FastLink.fetchRAMData().then(() => {
+            window.addEventListener('resize', () => snes9x_FastLink.helpers.resizeCanvas());
+            snes9x_FastLink.helpers.resizeCanvas();
+        });
+        /*
+        setInterval(() => {
+            try { draw(); } catch (error) { console.error('snes9x-FastLink: SERVICE OFFLINE'); }
+        }, 1000);
+        */
+    </script>
+
 </body>
 
 </html>
