@@ -50,7 +50,6 @@
 
                     document.addEventListener('click', () => menu.style.display = 'none');
 
-                    // Populate menu with "View" and "Color" options
                     this.populateMenu(menu, `View &#x25B8;`, ['RAM', 'SRAM', 'VRAM']);
                     this.populateMenu(menu, `Color &#x25B8;`, ['Purple', 'Red', 'Green', 'Blue']);
                 },
@@ -73,8 +72,8 @@
                     menuItem.onmouseenter = function (e) {
                         const menuItemRect = e.target.getBoundingClientRect();
                         subMenu.style.display = 'block';
-                        subMenu.style.left = menuItemRect.width + 'px'; // Adjust the left position based on the width of the menuItem
-                        subMenu.style.top = menuItem.offsetTop + 'px'; // Adjust the top position to align with the menuItem
+                        subMenu.style.left = menuItemRect.width + 'px';
+                        subMenu.style.top = menuItem.offsetTop + 'px';
                     };
 
                     menuItem.onmouseleave = function () {
@@ -89,7 +88,7 @@
                         optionItem.onclick = () => {
                             this.state[title.toLowerCase()] = option;
                             localStorage.setItem('snes9x_FastLink_state', JSON.stringify(this.state));
-                            subMenu.style.display = 'none'; // Optionally hide the submenu
+                            subMenu.style.display = 'none';
                         };
                         subMenu.appendChild(optionItem);
                     });
@@ -147,11 +146,8 @@
             window.addEventListener('resize', () => snes9x_FastLink.helpers.resizeCanvas());
             snes9x_FastLink.helpers.resizeCanvas();
         });
-        /*
-        setInterval(() => {
-            try { draw(); } catch (error) { console.error('snes9x-FastLink: SERVICE OFFLINE'); }
-        }, 1000);
-        */
+
+        setInterval(() => snes9x_FastLink.fetchRAMData().then(() => draw()), 250);
     </script>
 
 </body>
