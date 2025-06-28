@@ -18,6 +18,22 @@ This is a fork of the official source code repository for the Snes9x project, cl
     - [fmtlib - External Dependency Warnings](#fmtlib---external-dependency-warnings)
     - [Const Correctness](#const-correctness)
     - [Warning C4244](#warning-c4244)
+- [Modified Files](#modified-files)
+  - [memmap.h](#memmaph)
+  - [memserve.cpp](#memservecpp)
+  - [memserve.h](#memserveh)
+  - [prototype.html](#prototypehtml)
+  - [snes9x.h](#snes9xh)
+  - [win32/render.cpp](#win32rendercpp)
+  - [win32/rsrc/resource.h](#win32rsrcresourceh)
+  - [win32/rsrc/snes9x.rc](#win32rsrcsnes9xrc)
+  - [win32/snes9xw.vcxproj](#win32snes9xwvcxproj)
+  - [win32/snes9xw.vcxproj.filters](#win32snes9xwvcxprojfilters)
+  - [win32/wconfig.cpp](#win32wconfigcpp)
+  - [win32/win32\_display.cpp](#win32win32_displaycpp)
+  - [win32/wsnes9x.cpp](#win32wsnes9xcpp)
+  - [win32/wsnes9x.h](#win32wsnes9xh)
+  - [win32/wlanguage.h](#win32wlanguageh)
 
 # Developers
 
@@ -144,3 +160,50 @@ x
 | snes9x_imgui.cpp        |
 | COpenGL.cpp             |
 | vulkan_shader_chain.cpp |
+
+# Modified Files
+
+## memmap.h
+Minor formatting tweak to the `CMemory` struct definition.
+
+## memserve.cpp
+Implements an HTTP server that streams SNES RAM as binary data.
+
+## memserve.h
+Header for the MemServe feature.
+
+## prototype.html
+Web page that fetches RAM from `localhost:9000` and draws it on a canvas.
+
+## snes9x.h
+Added `MemoryServe` and `MemServePort` to the `SSettings` struct.
+
+## win32/render.cpp
+Removed a `DIRECTDRAW` check to always clear the change log.
+
+## win32/rsrc/resource.h
+Introduces `ID_EMULATION_MEMSERVE` for the new menu item.
+
+## win32/rsrc/snes9x.rc
+Adds the "SNES Memory REST API" entry under the Emulation menu.
+
+## win32/snes9xw.vcxproj
+Links against `ws2_32.lib` and includes the MemServe source files.
+
+## win32/snes9xw.vcxproj.filters
+Places MemServe files under a "FastLink" filter for organization.
+
+## win32/wconfig.cpp
+Registers MemServe configuration options in `snes9x.conf`.
+
+## win32/win32_display.cpp
+Removed the DirectDraw driver name from the output method list.
+
+## win32/wsnes9x.cpp
+Spawns and joins the MemServe thread and handles the menu toggle.
+
+## win32/wsnes9x.h
+Adjusted `OutputMethod` enum to drop `DIRECTDRAW`.
+
+## win32/wlanguage.h
+Updated the window title and disclaimer text for "Snes9x-FastLink".
