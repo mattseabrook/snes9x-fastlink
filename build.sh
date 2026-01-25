@@ -370,20 +370,27 @@ compile_res() {
   local rc_inc=("-I$CRT_INC" "-I$INC_UCRT" "-I$INC_UM" "-I$INC_SHARED" "-Iwin32/rsrc")
   local preprocessed="$BUILD_DIR/obj/snes9x_pp.rc"
 
-  # Preprocess the RC file
+  # Preprocess the RC file (fallback path)
   "$CL" --target="$TARGET_TRIPLE" /nologo /E /D_WIN32 /DWIN32 \
     "${rc_inc[@]}" "$rc" 2>/dev/null > "$preprocessed" || true
 
-  # If preprocessing worked, use preprocessed file; otherwise try direct
-  if [[ -s "$preprocessed" ]] && command -v "$RC_TOOL" >/dev/null 2>&1; then
-    "$RC_TOOL" /nologo /fo "$BUILD_DIR/obj/snes9x.res" "$preprocessed" 2>/dev/null || {
-      # Fallback: try without preprocessing
-      "$RC_TOOL" /nologo "${rc_inc[@]}" /fo "$BUILD_DIR/obj/snes9x.res" "$rc" 2>/dev/null || {
-        # Last resort: create minimal res file  
+  # Prefer compiling the original RC so resource syntax stays intact
+  if command -v "$RC_TOOL" >/dev/null 2>&1; then
+    "$RC_TOOL" /nologo /DWIN32 /D_WIN32 /Iwin32/rsrc \
+      /I"$INC_UM" /I"$INC_SHARED" /I"$INC_UCRT" /I"$CRT_INC" \
+      /fo "$BUILD_DIR/obj/snes9x.res" "$rc" 2>/dev/null || {
+      # Fallback: try preprocessed file if direct compile fails
+      if [[ -s "$preprocessed" ]]; then
+        "$RC_TOOL" /nologo /Iwin32/rsrc /fo "$BUILD_DIR/obj/snes9x.res" "$preprocessed" 2>/dev/null || {
+          info "Resource compilation failed - creating stub .res"
+          echo "" | "$RC_TOOL" /nologo /fo "$BUILD_DIR/obj/snes9x.res" /dev/stdin 2>/dev/null || \
+            touch "$BUILD_DIR/obj/snes9x.res"
+        }
+      else
         info "Resource compilation failed - creating stub .res"
         echo "" | "$RC_TOOL" /nologo /fo "$BUILD_DIR/obj/snes9x.res" /dev/stdin 2>/dev/null || \
           touch "$BUILD_DIR/obj/snes9x.res"
-      }
+      fi
     }
   elif command -v windres >/dev/null 2>&1; then
     windres -O coff -i "$rc" -o "$BUILD_DIR/obj/snes9x.res"
