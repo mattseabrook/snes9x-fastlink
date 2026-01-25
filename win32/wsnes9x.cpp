@@ -3404,8 +3404,11 @@ int WINAPI WinMain(
 				isMemServeRunning = true;
 				MemoryServeThread = std::thread(MemServe);
 			}
-			if (!Settings.MemoryServe && isMemServeRunning && MemoryServeThread.joinable()) {
-				MemoryServeThread.join();
+			if (!Settings.MemoryServe && isMemServeRunning) {
+				MemServeStop();  // Signal shutdown (non-blocking)
+				if (MemoryServeThread.joinable()) {
+					MemoryServeThread.join();  // Now safe - select() will timeout
+				}
 				isMemServeRunning = false;
 			}
 
@@ -3431,6 +3434,15 @@ int WINAPI WinMain(
     }
 
 loop_exit:
+
+	// FastLink: Clean shutdown of MemServe thread
+	if (isMemServeRunning) {
+		MemServeStop();
+		if (MemoryServeThread.joinable()) {
+			MemoryServeThread.join();
+		}
+		isMemServeRunning = false;
+	}
 
 	Settings.StopEmulation = TRUE;
 

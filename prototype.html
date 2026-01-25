@@ -1,155 +1,154 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <title>snes9x-FastLink v.0.1</title>
+    <title>snes9x-FastLink v.0.2</title>
+    <style>
+        body { background: #000; margin: 0; overflow: hidden; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #contextMenu {
+            display: none; position: absolute; z-index: 1000;
+            background: #ccc; padding: 0; margin: 0; list-style: none;
+        }
+        #contextMenu li { cursor: pointer; padding: 5px; position: relative; }
+        #contextMenu ul {
+            display: none; position: absolute; left: 100%; top: 0;
+            background: #ccc; padding: 5px; margin: 0; list-style: none; white-space: nowrap;
+        }
+        #contextMenu li:hover > ul { display: block; }
+    </style>
 </head>
-
 <body>
     <canvas id="canvas"></canvas>
-    <div id="contextMenu"></div>
+    <ul id="contextMenu">
+        <li>View &#x25B8;<ul id="viewMenu"></ul></li>
+        <li>Color &#x25B8;<ul id="colorMenu"></ul></li>
+    </ul>
     <script>
-        var snes9x_FastLink = {
-            RAM: new Uint8Array(131072),
-            ui: {
-                canvas: document.getElementById('canvas'),
-                context: document.getElementById('canvas').getContext('2d'),
-                masterColor: ['hsl(280, 100%, ', 'hsl(0, 100%, ', 'hsl(120, 100%, ', 'hsl(240, 100%, '],
-                getColorForByteValue: function (value) {
-                    if (value === 0) return 'hsl(0, 0%, 0%)';
-                    let selectedHue = this.masterColor.findIndex(color => color === this.state.color) * 90;
-                    const lightness = 25 + (value / 255) * 50;
-                    return `hsl(${selectedHue}, 100%, ${lightness}%)`;
-                },
-                state: JSON.parse(localStorage.getItem('snes9x_FastLink_state')) || { view: 'RAM', color: 'hsl(280, 100%, ' },
-                init: function () {
-                    Object.assign(this.canvas.style, { display: 'block', width: '100vw', height: '100vh' });
-                    Object.assign(document.body.style, { background: '#000000', margin: '0', padding: '0', width: '100%', height: '100%', overflow: 'hidden' });
-                    this.canvas.width = window.innerWidth;
-                    this.canvas.height = window.innerHeight;
-                    this.setupContextMenu();
-                },
-                setupContextMenu: function () {
-                    const menu = document.getElementById('contextMenu');
-                    Object.assign(menu.style, {
-                        display: 'none',
-                        position: 'absolute',
-                        zIndex: '1000',
-                        background: '#ccc',
-                        padding: '0',
-                        margin: '0',
-                        listStyle: 'none',
-                    });
+    (function() {
+        'use strict';
+        const RAM_SIZE = 131072;
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const menu = document.getElementById('contextMenu');
 
-                    this.canvas.oncontextmenu = e => {
-                        e.preventDefault();
-                        menu.style.display = 'block';
-                        menu.style.left = `${e.pageX}px`;
-                        menu.style.top = `${e.pageY}px`;
-                    };
+        // Reusable buffer - no allocation per frame
+        let ramBuffer = new Uint8Array(RAM_SIZE);
+        let imageData = null;
+        let pixels = null;
 
-                    document.addEventListener('click', () => menu.style.display = 'none');
+        const state = JSON.parse(localStorage.getItem('fastlink_state')) || { color: 0 };
+        const hues = [280, 0, 120, 240]; // purple, red, green, blue
 
-                    this.populateMenu(menu, `View &#x25B8;`, ['RAM', 'SRAM', 'VRAM']);
-                    this.populateMenu(menu, `Color &#x25B8;`, ['Purple', 'Red', 'Green', 'Blue']);
-                },
-                populateMenu: function (menu, title, options) {
-                    const menuItem = document.createElement('li');
-                    menuItem.innerHTML = title;
-                    menuItem.style.cursor = 'pointer';
-                    menuItem.style.listStyle = 'none';
-                    menuItem.style.padding = '5px';
-
-                    const subMenu = document.createElement('ul');
-                    subMenu.style.position = 'absolute';
-                    subMenu.style.margin = '0';
-                    subMenu.style.padding = '5px';
-                    subMenu.style.background = '#ccc';
-                    subMenu.style.listStyle = 'none';
-                    subMenu.style.whiteSpace = 'nowrap';
-                    subMenu.style.display = 'none';
-
-                    menuItem.onmouseenter = function (e) {
-                        const menuItemRect = e.target.getBoundingClientRect();
-                        subMenu.style.display = 'block';
-                        subMenu.style.left = menuItemRect.width + 'px';
-                        subMenu.style.top = menuItem.offsetTop + 'px';
-                    };
-
-                    menuItem.onmouseleave = function () {
-                        subMenu.style.display = 'none';
-                    };
-
-                    options.forEach(option => {
-                        const optionItem = document.createElement('li');
-                        optionItem.textContent = option;
-                        optionItem.style.cursor = 'pointer';
-                        optionItem.style.padding = '5px';
-                        optionItem.onclick = () => {
-                            this.state[title.toLowerCase()] = option;
-                            localStorage.setItem('snes9x_FastLink_state', JSON.stringify(this.state));
-                            subMenu.style.display = 'none';
-                        };
-                        subMenu.appendChild(optionItem);
-                    });
-
-                    menuItem.appendChild(subMenu);
-                    menu.appendChild(menuItem);
-                }
-            },
-            fetchRAMData: async function () {
-                try {
-                    const response = await fetch('http://127.0.0.1:9000/');
-                    if (!response.ok) throw new Error('Network response was not ok');
-                    const buffer = await response.arrayBuffer();
-                    this.RAM = new Uint8Array(buffer);
-                } catch (error) {
-                    console.error('Failed to fetch RAM data:', error);
-                    for (let i = 0; i < snes9x_FastLink.RAM.length; i++) {
-                        this.RAM[i] = Math.floor(Math.random() * 256);
-                    }
-                }
-            },
-            helpers: {
-                resizeCanvas: () => {
-                    snes9x_FastLink.ui.canvas.width = window.innerWidth;
-                    snes9x_FastLink.ui.canvas.height = window.innerHeight;
-                    draw();
-                }
-            }
-        };
-
-        function draw() {
-            const { RAM, ui } = snes9x_FastLink;
-            const totalTiles = RAM.length,
-                tilesWidth = Math.round(Math.sqrt(totalTiles * (ui.canvas.width / ui.canvas.height))),
-                tileWidth = ui.canvas.width / tilesWidth,
-                tileHeight = ui.canvas.height / (totalTiles / tilesWidth);
-
-            ui.context.fillStyle = 'black';
-            ui.context.fillRect(0, 0, ui.canvas.width, ui.canvas.height);
-
-            RAM.forEach((byte, i) => {
-                ui.context.fillStyle = ui.getColorForByteValue(byte);
-                ui.context.fillRect((i % tilesWidth) * tileWidth, Math.floor(i / tilesWidth) * tileHeight, tileWidth, tileHeight);
-            });
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            imageData = ctx.createImageData(canvas.width, canvas.height);
+            pixels = new Uint32Array(imageData.data.buffer);
         }
 
-        snes9x_FastLink.ui.init();
+        function getColor32(value) {
+            if (value === 0) return 0xFF000000; // black, fully opaque (ABGR)
+            const l = 64 + (value * 0.5) | 0; // lightness 64-191
+            const h = hues[state.color];
+            // Fast HSL->RGB approximation for full saturation
+            const c = l < 128 ? l : 255 - l;
+            const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+            let r, g, b;
+            if (h < 60)       { r = c; g = x; b = 0; }
+            else if (h < 120) { r = x; g = c; b = 0; }
+            else if (h < 180) { r = 0; g = c; b = x; }
+            else if (h < 240) { r = 0; g = x; b = c; }
+            else if (h < 300) { r = x; g = 0; b = c; }
+            else              { r = c; g = 0; b = x; }
+            const m = l - c / 2;
+            return 0xFF000000 | ((b + m) << 16) | ((g + m) << 8) | (r + m);
+        }
 
-        snes9x_FastLink.ui.context.font = '30px monospace';
-        snes9x_FastLink.ui.context.fillStyle = 'white';
-        snes9x_FastLink.ui.context.textAlign = 'center';
-        snes9x_FastLink.ui.context.fillText('SNES9X-FastLink', snes9x_FastLink.ui.canvas.width / 2, snes9x_FastLink.ui.canvas.height / 2);
+        // Pre-compute color LUT for current hue
+        let colorLUT = new Uint32Array(256);
+        function rebuildLUT() {
+            for (let i = 0; i < 256; i++) colorLUT[i] = getColor32(i);
+        }
+        rebuildLUT();
 
-        snes9x_FastLink.fetchRAMData().then(() => {
-            window.addEventListener('resize', () => snes9x_FastLink.helpers.resizeCanvas());
-            snes9x_FastLink.helpers.resizeCanvas();
-        });
+        function draw() {
+            const w = canvas.width, h = canvas.height;
+            const tilesX = Math.round(Math.sqrt(RAM_SIZE * (w / h)));
+            const tileW = w / tilesX;
+            const tilesY = Math.ceil(RAM_SIZE / tilesX);
+            const tileH = h / tilesY;
 
-        setInterval(() => snes9x_FastLink.fetchRAMData().then(() => draw()), 250);
+            // Clear to black
+            pixels.fill(0xFF000000);
+
+            // Draw tiles using LUT
+            for (let i = 0; i < RAM_SIZE; i++) {
+                const color = colorLUT[ramBuffer[i]];
+                const tx = (i % tilesX) * tileW | 0;
+                const ty = (i / tilesX | 0) * tileH | 0;
+                const tw = ((i % tilesX + 1) * tileW | 0) - tx;
+                const th = (((i / tilesX | 0) + 1) * tileH | 0) - ty;
+                for (let y = ty; y < ty + th && y < h; y++) {
+                    const row = y * w;
+                    for (let x = tx; x < tx + tw && x < w; x++) {
+                        pixels[row + x] = color;
+                    }
+                }
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        async function fetchRAM() {
+            try {
+                const resp = await fetch('http://127.0.0.1:9000/');
+                if (!resp.ok) throw new Error('fetch failed');
+                const buf = await resp.arrayBuffer();
+                // Copy into existing buffer (no new allocation)
+                new Uint8Array(buf).forEach((v, i) => ramBuffer[i] = v);
+            } catch (e) {
+                // Demo: random data
+                for (let i = 0; i < RAM_SIZE; i++) ramBuffer[i] = Math.random() * 256 | 0;
+            }
+            draw();
+        }
+
+        // Context menu
+        canvas.oncontextmenu = e => {
+            e.preventDefault();
+            menu.style.display = 'block';
+            menu.style.left = e.pageX + 'px';
+            menu.style.top = e.pageY + 'px';
+        };
+        document.onclick = () => menu.style.display = 'none';
+
+        function populateMenu(id, options, key) {
+            const ul = document.getElementById(id);
+            options.forEach((opt, i) => {
+                const li = document.createElement('li');
+                li.textContent = opt;
+                li.onclick = () => {
+                    state[key] = i;
+                    localStorage.setItem('fastlink_state', JSON.stringify(state));
+                    rebuildLUT();
+                };
+                ul.appendChild(li);
+            });
+        }
+        populateMenu('viewMenu', ['RAM', 'SRAM', 'VRAM'], 'view');
+        populateMenu('colorMenu', ['Purple', 'Red', 'Green', 'Blue'], 'color');
+
+        // Init
+        resize();
+        window.onresize = () => { resize(); draw(); };
+
+        ctx.font = '30px monospace';
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'center';
+        ctx.fillText('SNES9X-FastLink', canvas.width / 2, canvas.height / 2);
+
+        fetchRAM();
+        setInterval(fetchRAM, 250);
+    })();
     </script>
-
 </body>
-
 </html>

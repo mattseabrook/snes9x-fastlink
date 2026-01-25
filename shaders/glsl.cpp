@@ -9,6 +9,9 @@
 #include <sstream>
 #include <fstream>
 #include <map>
+#ifdef _WIN32
+#include "_tfwopen.h"
+#endif
 #include "glsl.h"
 #include "shader_helpers.h"
 #include "../vulkan/slang_helpers.hpp"
