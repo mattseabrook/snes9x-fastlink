@@ -124,6 +124,7 @@ win32/DumpAtEnd.cpp build-win64/obj/win32_DumpAtEnd.obj
 win32/gl_core_3_1.c build-win64/obj/win32_gl_core_3_1.obj
 win32/image_functions.cpp build-win64/obj/win32_image_functions.obj
 win32/InputCustom.cpp build-win64/obj/win32_InputCustom.obj
+win32/VisualizationWindow.cpp build-win64/obj/win32_VisualizationWindow.obj
 win32/render.cpp build-win64/obj/win32_render.obj
 win32/wconfig.cpp build-win64/obj/win32_wconfig.obj
 win32/win32.cpp build-win64/obj/win32_win32.obj

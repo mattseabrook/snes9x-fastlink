@@ -37,6 +37,7 @@
 #include "../shaders/glsl.h"
 #include "CShaderParamDlg.h"
 #include "CSaveLoadWithPreviewDlg.h"
+#include "VisualizationWindow.h"
 #include "../snes9x.h"
 #include "../memmap.h"
 #include "../memserve.h"
@@ -112,6 +113,8 @@ HRESULT CALLBACK EnumModesCallback( LPDDSURFACEDESC lpDDSurfaceDesc, LPVOID lpCo
 int WinSearchCheatDatabase();
 
 VOID CALLBACK HotkeyTimer( UINT idEvent, UINT uMsg, DWORD dwUser, DWORD dw1, DWORD dw2);
+static void StartHotkeyTimer();
+static void StopHotkeyTimer();
 
 void S9xDetectJoypads();
 
@@ -1834,7 +1837,7 @@ LRESULT CALLBACK WinProc(
 		case ID_EMULATION_BACKGROUNDINPUT:
 			GUI.BackgroundInput = !GUI.BackgroundInput;
 			if(!GUI.hHotkeyTimer)
-				GUI.hHotkeyTimer = timeSetEvent (32, 0, (LPTIMECALLBACK)HotkeyTimer, 0, TIME_PERIODIC);
+				StartHotkeyTimer();
 			break;
 
         case ID_INPUT_BACKGROUNDKEYBOARDHOTKEYS:
@@ -2216,6 +2219,9 @@ LRESULT CALLBACK WinProc(
 			break;
 		case ID_EMULATION_MEMSERVE:
 			Settings.MemoryServe = !Settings.MemoryServe;
+			break;
+		case ID_EMULATION_VISUALIZATION:
+			VisualizationToggle(hWnd);
 			break;
 		case ID_OPTIONS_SETTINGS:
 			DialogBox(g_hInst, MAKEINTRESOURCE(IDD_EMU_SETTINGS), hWnd, DlgEmulatorProc);
@@ -2777,6 +2783,28 @@ VOID CALLBACK HotkeyTimer( UINT idEvent, UINT uMsg, DWORD dwUser, DWORD dw1, DWO
 	}
 }
 
+static VOID CALLBACK HotkeyTimerQueueThunk(PVOID, BOOLEAN)
+{
+	HotkeyTimer(0, 0, 0, 0, 0);
+}
+
+static void StartHotkeyTimer()
+{
+	if (!GUI.hHotkeyTimer)
+	{
+		CreateTimerQueueTimer(&GUI.hHotkeyTimer, NULL, HotkeyTimerQueueThunk, NULL, 0, 32, WT_EXECUTEDEFAULT);
+	}
+}
+
+static void StopHotkeyTimer()
+{
+	if (GUI.hHotkeyTimer)
+	{
+		DeleteTimerQueueTimer(NULL, GUI.hHotkeyTimer, NULL);
+		GUI.hHotkeyTimer = NULL;
+	}
+}
+
 static void EnsureInputDisplayUpdated()
 {
 	if(GUI.FrameAdvanceJustPressed==1 && Settings.Paused && Settings.DisplayPressedKeys==2 && GUI.ControllerOption != SNES_JOYPAD && GUI.ControllerOption != SNES_MULTIPLAYER5 && GUI.ControllerOption != SNES_MULTIPLAYER8)
@@ -3277,9 +3305,9 @@ int WINAPI WinMain(
     Settings.StopEmulation = TRUE;
 
 	if(GUI.JoystickHotkeys || GUI.BackgroundInput)
-	    GUI.hHotkeyTimer = timeSetEvent (32, 0, (LPTIMECALLBACK)HotkeyTimer, 0, TIME_PERIODIC);
+	    StartHotkeyTimer();
 	else
-		GUI.hHotkeyTimer = 0;
+		GUI.hHotkeyTimer = NULL;
 
     GUI.ServerTimerSemaphore = CreateSemaphore (NULL, 0, 10, NULL);
 
@@ -3367,7 +3395,7 @@ int WINAPI WinMain(
 			{
 				if(timeGetTime() - lastTime >= 100)
 				{
-					SendMessage(cheatSearchHWND, WM_COMMAND, (WPARAM)(IDC_REFRESHLIST),(LPARAM)(NULL));
+					PostMessage(cheatSearchHWND, WM_COMMAND, (WPARAM)(IDC_REFRESHLIST),(LPARAM)(NULL));
 					lastTime = timeGetTime();
 				}
 			}
@@ -3444,13 +3472,14 @@ loop_exit:
 		isMemServeRunning = false;
 	}
 
+	VisualizationShutdown();
+
 	Settings.StopEmulation = TRUE;
 
 	// stop sound playback
 	CloseSoundDevice();
 
-    if (GUI.hHotkeyTimer)
-        timeKillEvent (GUI.hHotkeyTimer);
+	StopHotkeyTimer();
 
     timeEndPeriod(wSoundTimerRes);
 
@@ -3675,6 +3704,9 @@ static void CheckMenuStates ()
 	// FastLink
 	mii.fState = Settings.MemoryServe ? MFS_CHECKED : MFS_UNCHECKED;
 	SetMenuItemInfo(GUI.hMenu, ID_EMULATION_MEMSERVE, FALSE, &mii);
+
+	mii.fState = VisualizationIsVisible() ? MFS_CHECKED : MFS_UNCHECKED;
+	SetMenuItemInfo(GUI.hMenu, ID_EMULATION_VISUALIZATION, FALSE, &mii);
 
     mii.fState = MFS_UNCHECKED;
     if (Settings.StopEmulation)

@@ -485,6 +485,7 @@
     <ClInclude Include="win32_sound.h" />
     <ClInclude Include="wlanguage.h" />
     <ClInclude Include="wsnes9x.h" />
+    <ClInclude Include="VisualizationWindow.h" />
     <ClInclude Include="_tfwopen.h" />
   </ItemGroup>
   <ItemGroup>
@@ -648,6 +649,7 @@
     <ClCompile Include="gl_core_3_1.c" />
     <ClCompile Include="image_functions.cpp" />
     <ClCompile Include="InputCustom.cpp" />
+    <ClCompile Include="VisualizationWindow.cpp" />
     <ClCompile Include="render.cpp" />
     <ClCompile Include="wconfig.cpp" />
     <ClCompile Include="win32.cpp" />

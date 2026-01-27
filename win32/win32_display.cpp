@@ -82,7 +82,14 @@ void WinRefreshDisplay(void)
 
 	CheckOverscanOffset();
 
-	SelectRenderMethod ();
+	static RenderFilter lastScale = FILTER_NONE;
+	static RenderFilter lastScaleHiRes = FILTER_NONE;
+	if (lastScale != GUI.Scale || lastScaleHiRes != GUI.ScaleHiRes)
+	{
+		SelectRenderMethod();
+		lastScale = GUI.Scale;
+		lastScaleHiRes = GUI.ScaleHiRes;
+	}
 
 	S9xDisplayOutput->Render(Src);
 	GUI.FlipCounter++;

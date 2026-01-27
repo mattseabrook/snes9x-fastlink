@@ -105,6 +105,9 @@
     <ClInclude Include="wsnes9x.h">
       <Filter>GUI</Filter>
     </ClInclude>
+    <ClInclude Include="VisualizationWindow.h">
+      <Filter>FastLink</Filter>
+    </ClInclude>
     <ClInclude Include="CXAudio2.h">
       <Filter>GUI\SoundDriver</Filter>
     </ClInclude>
@@ -556,6 +559,9 @@
     </ClCompile>
     <ClCompile Include="InputCustom.cpp">
       <Filter>GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="VisualizationWindow.cpp">
+      <Filter>FastLink</Filter>
     </ClCompile>
     <ClCompile Include="render.cpp">
       <Filter>GUI</Filter>

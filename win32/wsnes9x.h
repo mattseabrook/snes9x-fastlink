@@ -145,7 +145,7 @@ struct sGUI {
     HMENU hMenu;
     HINSTANCE hInstance;
 
-    DWORD hHotkeyTimer;
+	HANDLE hHotkeyTimer;
     HANDLE ClientSemaphore;
     HANDLE ServerTimerSemaphore;
 
