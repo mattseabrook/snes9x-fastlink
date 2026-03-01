@@ -8,7 +8,12 @@
 #define CGMINI_H
 
 #include <d3d9.h>
-#include "gl_core_3_1.h"
+
+typedef unsigned int GLuint;
+typedef int GLint;
+typedef unsigned int GLenum;
+typedef int GLsizei;
+typedef void GLvoid;
 
 #define CGENTRY __cdecl
 #define CGD3D9ENTRY __cdecl

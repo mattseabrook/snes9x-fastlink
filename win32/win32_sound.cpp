@@ -73,26 +73,23 @@ returns true if successful, false otherwise
 bool8 S9xOpenSoundDevice ()
 {
 	S9xSetSamplesAvailableCallback (NULL, NULL);
-	// point the interface to the correct output object
-	switch(GUI.SoundDriver) {
-		case WIN_WAVEOUT_DRIVER:
+
+	// Modern default: WASAPI first for low-latency/event-driven playback.
+	GUI.SoundDriver = WIN_WASAPI_SOUND_DRIVER;
+	S9xSoundOutput = &S9xWasapi;
+	if (!S9xSoundOutput->InitSoundOutput() || !S9xSoundOutput->SetupSound())
+	{
+		// Silent fallback path for compatibility if WASAPI is unavailable.
+		GUI.SoundDriver = WIN_XAUDIO2_SOUND_DRIVER;
+		S9xSoundOutput = &S9xXAudio2;
+		if (!S9xSoundOutput->InitSoundOutput() || !S9xSoundOutput->SetupSound())
+		{
+			GUI.SoundDriver = WIN_WAVEOUT_DRIVER;
 			S9xSoundOutput = &S9xWaveOut;
-			break;
-		case WIN_WASAPI_SOUND_DRIVER:
-			S9xSoundOutput = &S9xWasapi;
-			break;
-		case WIN_XAUDIO2_SOUND_DRIVER:
-			S9xSoundOutput = &S9xXAudio2;
-			break;
-		default:	// we default to WaveOut
-			GUI.SoundDriver = WIN_WASAPI_SOUND_DRIVER;
-			S9xSoundOutput = &S9xWasapi;
+			if (!S9xSoundOutput->InitSoundOutput() || !S9xSoundOutput->SetupSound())
+				return false;
+		}
 	}
-	if(!S9xSoundOutput->InitSoundOutput())
-		return false;
-	
-	if(!S9xSoundOutput->SetupSound())
-		return false;
 	
 	S9xSetSamplesAvailableCallback (S9xSoundCallback, NULL);
 	return true;

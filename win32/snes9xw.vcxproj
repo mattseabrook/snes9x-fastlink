@@ -464,7 +464,6 @@
     <ClInclude Include="CD3DCG.h" />
     <CustomBuild Include="CDirect3D.h" />
     <ClInclude Include="cgFunctions.h" />
-    <ClInclude Include="CGLCG.h" />
     <ClInclude Include="cgMini.h" />
     <ClInclude Include="CSaveLoadWithPreviewDlg.h" />
     <ClInclude Include="CShaderParamDlg.h" />
@@ -572,9 +571,6 @@
     <ClCompile Include="..\seta010.cpp" />
     <ClCompile Include="..\seta011.cpp" />
     <ClCompile Include="..\seta018.cpp" />
-    <ClCompile Include="..\shaders\glsl.cpp" />
-    <ClCompile Include="..\shaders\shader_helpers.cpp" />
-    <ClCompile Include="..\shaders\slang.cpp" />
     <ClCompile Include="..\external\SPIRV-Cross\spirv_cfg.cpp" />
     <ClCompile Include="..\external\SPIRV-Cross\spirv_cross.cpp" />
     <ClCompile Include="..\external\SPIRV-Cross\spirv_cross_parsed_ir.cpp" />

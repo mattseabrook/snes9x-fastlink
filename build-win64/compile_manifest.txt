@@ -69,9 +69,6 @@ seta.cpp build-win64/obj/seta.obj
 seta010.cpp build-win64/obj/seta010.obj
 seta011.cpp build-win64/obj/seta011.obj
 seta018.cpp build-win64/obj/seta018.obj
-shaders/glsl.cpp build-win64/obj/shaders_glsl.obj
-shaders/shader_helpers.cpp build-win64/obj/shaders_shader_helpers.obj
-shaders/slang.cpp build-win64/obj/shaders_slang.obj
 external/SPIRV-Cross/spirv_cfg.cpp build-win64/obj/external_SPIRV-Cross_spirv_cfg.obj
 external/SPIRV-Cross/spirv_cross.cpp build-win64/obj/external_SPIRV-Cross_spirv_cross.obj
 external/SPIRV-Cross/spirv_cross_parsed_ir.cpp build-win64/obj/external_SPIRV-Cross_spirv_cross_parsed_ir.obj

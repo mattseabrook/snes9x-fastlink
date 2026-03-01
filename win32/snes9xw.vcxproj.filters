@@ -123,9 +123,6 @@
     <ClInclude Include="cgFunctions.h">
       <Filter>GUI\VideoDriver</Filter>
     </ClInclude>
-    <ClInclude Include="CGLCG.h">
-      <Filter>GUI\VideoDriver</Filter>
-    </ClInclude>
     <ClInclude Include="IS9xDisplayOutput.h">
       <Filter>GUI\VideoDriver</Filter>
     </ClInclude>
@@ -647,20 +644,11 @@
     <ClCompile Include="DumpAtEnd.cpp">
       <Filter>GUI</Filter>
     </ClCompile>
-    <ClCompile Include="..\shaders\glsl.cpp">
-      <Filter>Shaders</Filter>
-    </ClCompile>
-    <ClCompile Include="..\shaders\shader_helpers.cpp">
-      <Filter>Shaders</Filter>
-    </ClCompile>
     <ClCompile Include="CShaderParamDlg.cpp">
       <Filter>GUI\VideoDriver</Filter>
     </ClCompile>
     <ClCompile Include="image_functions.cpp">
       <Filter>GUI\VideoDriver</Filter>
-    </ClCompile>
-    <ClCompile Include="..\shaders\slang.cpp">
-      <Filter>Shaders</Filter>
     </ClCompile>
     <ClCompile Include="..\external\SPIRV-Cross\spirv_cfg.cpp">
       <Filter>Shaders</Filter>

@@ -20,7 +20,7 @@
 #elif defined(_WIN32)
     #include <windows.h>
     #include <stdlib.h>
-    #include "gl_core_3_1.h"
+    #include <glad/gl.h>
     #include <direct.h>
 
     #ifdef UNICODE
