@@ -113,9 +113,7 @@ win32/cgFunctions.cpp build-win64/obj/win32_cgFunctions.obj
 win32/CSaveLoadWithPreviewDlg.cpp build-win64/obj/win32_CSaveLoadWithPreviewDlg.obj
 win32/CShaderParamDlg.cpp build-win64/obj/win32_CShaderParamDlg.obj
 win32/CVulkan.cpp build-win64/obj/win32_CVulkan.obj
-win32/CWaveOut.cpp build-win64/obj/win32_CWaveOut.obj
 win32/CWasapi.cpp build-win64/obj/win32_CWasapi.obj
-win32/CXAudio2.cpp build-win64/obj/win32_CXAudio2.obj
 win32/DumpAtEnd.cpp build-win64/obj/win32_DumpAtEnd.obj
 win32/image_functions.cpp build-win64/obj/win32_image_functions.obj
 win32/InputCustom.cpp build-win64/obj/win32_InputCustom.obj

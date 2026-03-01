@@ -408,23 +408,6 @@ struct SCustomKeys CustomKeys = {
     {'R',0}, // Rewind
 };
 
-
-struct SSoundRates
-{
-    uint32 rate;
-    int ident;
-} SoundRates[9] = {
-    { 8000, ID_SOUND_8000HZ},
-    {11025, ID_SOUND_11025HZ},
-    {16000, ID_SOUND_16000HZ},
-    {22050, ID_SOUND_22050HZ},
-    {30000, ID_SOUND_30000HZ},
-	{32000, ID_SOUND_32000HZ},
-    {35000, ID_SOUND_35000HZ},
-    {44100, ID_SOUND_44100HZ},
-    {48000, ID_SOUND_48000HZ}
-};
-
 static uint32 FrameTimings[] = {
 	4000, 4000, 8333, 11667, 16667, 20000, 33333, 66667, 133333, 300000, 500000, 1000000, 1000000
 };
@@ -1976,79 +1959,6 @@ LRESULT CALLBACK WinProc(
             NPServer.SyncByReset ^= TRUE;
             break;
 #endif
-        case ID_SOUND_8000HZ:
-		case ID_SOUND_11025HZ:
-		case ID_SOUND_16000HZ:
-		case ID_SOUND_22050HZ:
-		case ID_SOUND_30000HZ:
-		case ID_SOUND_35000HZ:
-		case ID_SOUND_44100HZ:
-		case ID_SOUND_48000HZ:
-		case ID_SOUND_32000HZ:
-            for( i = 0; i < COUNT(SoundRates); i ++)
-				if (SoundRates[i].ident == (int) wParam)
-				{
-                    Settings.SoundPlaybackRate = SoundRates [i].rate;
-					GUI.Mute = false;
-					ReInitSound();
-                    break;
-				}
-				break;
-
-		case ID_SOUND_16MS:
-			GUI.SoundBufferSize = 16;
-			ReInitSound();
-			break;
-		case ID_SOUND_32MS:
-			GUI.SoundBufferSize = 32;
-			ReInitSound();
-			break;
-		case ID_SOUND_48MS:
-			GUI.SoundBufferSize = 48;
-			ReInitSound();
-			break;
-		case ID_SOUND_64MS:
-			GUI.SoundBufferSize = 64;
-			ReInitSound();
-			break;
-		case ID_SOUND_80MS:
-			GUI.SoundBufferSize = 80;
-			ReInitSound();
-			break;
-		case ID_SOUND_96MS:
-			GUI.SoundBufferSize = 96;
-			ReInitSound();
-			break;
-		case ID_SOUND_112MS:
-			GUI.SoundBufferSize = 112;
-			ReInitSound();
-			break;
-		case ID_SOUND_128MS:
-			GUI.SoundBufferSize = 128;
-			ReInitSound();
-			break;
-		case ID_SOUND_144MS:
-			GUI.SoundBufferSize = 144;
-			ReInitSound();
-			break;
-		case ID_SOUND_160MS:
-			GUI.SoundBufferSize = 160;
-			ReInitSound();
-			break;
-		case ID_SOUND_176MS:
-			GUI.SoundBufferSize = 176;
-			ReInitSound();
-			break;
-		case ID_SOUND_192MS:
-			GUI.SoundBufferSize = 192;
-			ReInitSound();
-			break;
-		case ID_SOUND_208MS:
-			GUI.SoundBufferSize = 208;
-			ReInitSound();
-			break;
-
-
         case ID_CHANNELS_CHANNEL1: S9xToggleSoundChannel(0); break;
         case ID_CHANNELS_CHANNEL2: S9xToggleSoundChannel(1); break;
         case ID_CHANNELS_CHANNEL3: S9xToggleSoundChannel(2); break;
@@ -3780,8 +3690,6 @@ static void CheckMenuStates ()
     SetMenuItemInfo (GUI.hMenu, ID_SOUND_OPTIONS, FALSE, &mii);
 
     SetMenuItemInfo (GUI.hMenu, ID_SOUND_NOSOUND, FALSE, &mii);
-    for (i = 0; i < COUNT(SoundRates); i++)
-        SetMenuItemInfo (GUI.hMenu, SoundRates[i].ident, FALSE, &mii);
 
     if (Settings.SoundPlaybackRate == 0 || GUI.Mute)
         mii.fState |= MFS_DISABLED;
@@ -3789,58 +3697,15 @@ static void CheckMenuStates ()
     SetMenuItemInfo (GUI.hMenu, ID_SOUND_SYNC, FALSE, &mii);
     SetMenuItemInfo (GUI.hMenu, ID_SOUND_INTERPOLATED, FALSE, &mii);
 
-    SetMenuItemInfo (GUI.hMenu, ID_SOUND_16MS, FALSE, &mii);
-    SetMenuItemInfo (GUI.hMenu, ID_SOUND_32MS, FALSE, &mii);
-    SetMenuItemInfo (GUI.hMenu, ID_SOUND_48MS, FALSE, &mii);
-    SetMenuItemInfo (GUI.hMenu, ID_SOUND_64MS, FALSE, &mii);
-    SetMenuItemInfo (GUI.hMenu, ID_SOUND_80MS, FALSE, &mii);
-    SetMenuItemInfo (GUI.hMenu, ID_SOUND_96MS, FALSE, &mii);
-    SetMenuItemInfo (GUI.hMenu, ID_SOUND_112MS, FALSE, &mii);
-	SetMenuItemInfo (GUI.hMenu, ID_SOUND_128MS, FALSE, &mii);
-	SetMenuItemInfo (GUI.hMenu, ID_SOUND_144MS, FALSE, &mii);
-	SetMenuItemInfo (GUI.hMenu, ID_SOUND_160MS, FALSE, &mii);
-	SetMenuItemInfo (GUI.hMenu, ID_SOUND_176MS, FALSE, &mii);
-	SetMenuItemInfo (GUI.hMenu, ID_SOUND_192MS, FALSE, &mii);
-	SetMenuItemInfo (GUI.hMenu, ID_SOUND_208MS, FALSE, &mii);
-
     mii.fState = MFS_CHECKED;
 	if (GUI.AVIOut)
         mii.fState |= MFS_DISABLED;
 
     if (Settings.SoundPlaybackRate == 0 || GUI.Mute )
         SetMenuItemInfo (GUI.hMenu, ID_SOUND_NOSOUND, FALSE, &mii);
-    else
-    {
-        for (i = 0; i < COUNT(SoundRates); i++)
-        {
-            if (SoundRates [i].rate == Settings.SoundPlaybackRate)
-            {
-                SetMenuItemInfo (GUI.hMenu, SoundRates[i].ident, FALSE, &mii);
-                break;
-            }
-        }
-    }
+
     if (Settings.SoundPlaybackRate == 0 || GUI.Mute)
         mii.fState |= MFS_DISABLED;
-
-	int id;
-	switch (GUI.SoundBufferSize)
-    {
-	case 16:  id = ID_SOUND_16MS; break;
-	case 32:  id = ID_SOUND_32MS; break;
-	case 48:  id = ID_SOUND_48MS; break;
-	case 64:  id = ID_SOUND_64MS; break;
-	case 80:  id = ID_SOUND_80MS; break;
-	case 96:  id = ID_SOUND_96MS; break;
-	case 112: id = ID_SOUND_112MS; break;
-	case 128: id = ID_SOUND_128MS; break;
-	case 144: id = ID_SOUND_144MS; break;
-	case 160: id = ID_SOUND_160MS; break;
-	case 176: id = ID_SOUND_176MS; break;
-	case 192: id = ID_SOUND_192MS; break;
-	case 208: id = ID_SOUND_208MS; break;
-    }
-    SetMenuItemInfo (GUI.hMenu, id, FALSE, &mii);
 
     if (Settings.SoundSync)
         SetMenuItemInfo (GUI.hMenu, ID_SOUND_SYNC, FALSE, &mii);
@@ -4375,10 +4240,9 @@ INT_PTR CALLBACK DlgSoundConf(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 	HWND hTrackbar;
 	TCHAR valTxt[10];
 
-    // temporary GUI state for restoring after switching devices (need to actually switch devices to get output devices)
-    static int prevDriver;
-	static const int kRateValues[] = { 32000, 44100, 48000 };
-	static const int kBufferValuesMs[] = { 16, 24, 32, 40, 48, 64 };
+	// WASAPI-only backend in modern Win32 path.
+	static const int kFixedPlaybackRate = 48000;
+	static const int kFixedBufferMs = 16;
 
 	switch(msg)
 	{
@@ -4386,7 +4250,6 @@ INT_PTR CALLBACK DlgSoundConf(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             WinRefreshDisplay();
 
-            prevDriver = GUI.SoundDriver;
 			GUI.SoundDriver = WIN_WASAPI_SOUND_DRIVER;
 
             // FIXME: these strings should come from wlanguage.h
@@ -4398,12 +4261,6 @@ INT_PTR CALLBACK DlgSoundConf(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
             HWND output_dropdown = GetDlgItem(hDlg, IDC_OUTPUT_DEVICE);
             UpdateAudioDeviceDropdown(output_dropdown);
             ComboBox_SetCurSel(output_dropdown, FindAudioDeviceIndex(GUI.AudioDevice));
-
-            int pos;
-			pos = SendDlgItemMessage(hDlg, IDC_DRIVER, CB_INSERTSTRING, -1, (LPARAM)TEXT("WASAPI (Low Latency)"));
-			SendDlgItemMessage(hDlg, IDC_DRIVER, CB_SETITEMDATA, pos, WIN_WASAPI_SOUND_DRIVER);
-			SendDlgItemMessage(hDlg, IDC_DRIVER, CB_SETCURSEL, 0, 0);
-			EnableWindow(GetDlgItem(hDlg, IDC_DRIVER), FALSE);
 
             if (WinGetAutomaticInputRate() < 1)
             {
@@ -4434,44 +4291,8 @@ INT_PTR CALLBACK DlgSoundConf(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
             _sntprintf(valTxt, 10, TEXT("%d"), GUI.VolumeTurbo);
             Edit_SetText(GetDlgItem(hDlg, IDC_EDIT_VOLUME_TURBO), valTxt);
 
-
-			SendDlgItemMessage(hDlg, IDC_RATE, CB_INSERTSTRING, 0, (LPARAM)TEXT("32 KHz"));
-			SendDlgItemMessage(hDlg, IDC_RATE, CB_INSERTSTRING, 1, (LPARAM)TEXT("44.1 KHz"));
-			SendDlgItemMessage(hDlg, IDC_RATE, CB_INSERTSTRING, 2, (LPARAM)TEXT("48 KHz"));
-
-			auto abs_diff = [](int a, int b) { int d = a - b; return d < 0 ? -d : d; };
-			int temp = 0;
-			int bestRateDiff = abs_diff((int)Settings.SoundPlaybackRate, kRateValues[0]);
-			for (int i = 1; i < (int)(sizeof(kRateValues) / sizeof(kRateValues[0])); i++)
-			{
-				int diff = abs_diff((int)Settings.SoundPlaybackRate, kRateValues[i]);
-				if (diff < bestRateDiff)
-				{
-					bestRateDiff = diff;
-					temp = i;
-				}
-			}
-			SendDlgItemMessage(hDlg, IDC_RATE, CB_SETCURSEL, temp, 0);
-
-			SendDlgItemMessage(hDlg, IDC_BUFLEN, CB_INSERTSTRING, 0, (LPARAM)TEXT("16 ms"));
-			SendDlgItemMessage(hDlg, IDC_BUFLEN, CB_INSERTSTRING, 1, (LPARAM)TEXT("24 ms"));
-			SendDlgItemMessage(hDlg, IDC_BUFLEN, CB_INSERTSTRING, 2, (LPARAM)TEXT("32 ms"));
-			SendDlgItemMessage(hDlg, IDC_BUFLEN, CB_INSERTSTRING, 3, (LPARAM)TEXT("40 ms"));
-			SendDlgItemMessage(hDlg, IDC_BUFLEN, CB_INSERTSTRING, 4, (LPARAM)TEXT("48 ms"));
-			SendDlgItemMessage(hDlg, IDC_BUFLEN, CB_INSERTSTRING, 5, (LPARAM)TEXT("64 ms"));
-
-			int bufferSel = 0;
-			int bestBufDiff = abs((int)GUI.SoundBufferSize - kBufferValuesMs[0]);
-			for (int i = 1; i < (int)(sizeof(kBufferValuesMs) / sizeof(kBufferValuesMs[0])); i++)
-			{
-				int diff = abs((int)GUI.SoundBufferSize - kBufferValuesMs[i]);
-				if (diff < bestBufDiff)
-				{
-					bestBufDiff = diff;
-					bufferSel = i;
-				}
-			}
-			SendDlgItemMessage(hDlg, IDC_BUFLEN, CB_SETCURSEL, bufferSel, 0);
+			Settings.SoundPlaybackRate = kFixedPlaybackRate;
+			GUI.SoundBufferSize = kFixedBufferMs;
 
             if (Settings.DynamicRateControl)
                 SendDlgItemMessage(hDlg, IDC_DYNRATECONTROL, BM_SETCHECK, BST_CHECKED, 0);
@@ -4536,15 +4357,8 @@ INT_PTR CALLBACK DlgSoundConf(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 					GUI.Mute=IsDlgButtonChecked(hDlg, IDC_MUTE);
 					GUI.FAMute=IsDlgButtonChecked(hDlg, IDC_FAMT)!=0;
 
-					int rateSel = (int)SendDlgItemMessage(hDlg, IDC_RATE, CB_GETCURSEL, 0, 0);
-					if (rateSel < 0 || rateSel >= (int)(sizeof(kRateValues) / sizeof(kRateValues[0])))
-						rateSel = 0;
-					Settings.SoundPlaybackRate = kRateValues[rateSel];
-
-					int bufSel = (int)SendDlgItemMessage(hDlg, IDC_BUFLEN, CB_GETCURSEL, 0, 0);
-					if (bufSel < 0 || bufSel >= (int)(sizeof(kBufferValuesMs) / sizeof(kBufferValuesMs[0])))
-						bufSel = 2;
-					GUI.SoundBufferSize = kBufferValuesMs[bufSel];
+					Settings.SoundPlaybackRate = kFixedPlaybackRate;
+					GUI.SoundBufferSize = kFixedBufferMs;
 
 					Edit_GetText(GetDlgItem(hDlg,IDC_INRATEEDIT),valTxt,10);
 					int sliderVal=_tstoi(valTxt);
@@ -4575,7 +4389,6 @@ INT_PTR CALLBACK DlgSoundConf(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 				}
 
 				case IDCANCEL:
-                    GUI.SoundDriver = prevDriver;
 					EndDialog(hDlg, 1);
 					return true;
 
@@ -4602,35 +4415,6 @@ INT_PTR CALLBACK DlgSoundConf(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 
                     return true;
                 }
-				case IDC_DRIVER:
-					if(CBN_SELCHANGE==HIWORD(wParam))
-					{
-						int driver = SendDlgItemMessage(hDlg, IDC_DRIVER, CB_GETITEMDATA,
-										SendDlgItemMessage(hDlg, IDC_DRIVER, CB_GETCURSEL, 0,0),0);
-
-						switch(driver) {
-							case WIN_WAVEOUT_DRIVER:
-								SendDlgItemMessage(hDlg,IDC_BUFLEN,CB_SETCURSEL,3,0);
-								break;
-							case WIN_XAUDIO2_SOUND_DRIVER:
-								SendDlgItemMessage(hDlg,IDC_BUFLEN,CB_SETCURSEL,3,0);
-								break;
-							default:
-								SendDlgItemMessage(hDlg,IDC_BUFLEN,CB_SETCURSEL,7,0);
-								break;
-						}
-
-                        // get current selected device name, switch driver, try to select the same
-                        HWND output_dropdown = GetDlgItem(hDlg, IDC_OUTPUT_DEVICE);
-                        TCHAR selected_device[MAX_AUDIO_NAME_LENGTH];
-                        Edit_GetText(output_dropdown, selected_device, MAX_AUDIO_NAME_LENGTH);
-                        GUI.SoundDriver = driver;
-                        ReInitSound();
-                        UpdateAudioDeviceDropdown(output_dropdown);
-                        ComboBox_SetCurSel(output_dropdown, FindAudioDeviceIndex(selected_device));
-						return true;
-					}
-					else return false;
 				case IDC_INRATEEDIT:
 					if(HIWORD(wParam)==EN_UPDATE) {
 						Edit_GetText(GetDlgItem(hDlg,IDC_INRATEEDIT),valTxt,10);

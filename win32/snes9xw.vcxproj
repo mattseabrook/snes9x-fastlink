@@ -468,8 +468,6 @@
     <ClInclude Include="CSaveLoadWithPreviewDlg.h" />
     <ClInclude Include="CShaderParamDlg.h" />
     <ClInclude Include="CVulkan.h" />
-    <ClInclude Include="CWaveOut.h" />
-    <ClInclude Include="CXAudio2.h" />
     <ClInclude Include="image_functions.h" />
     <ClInclude Include="InputCustom.h" />
     <ClInclude Include="IS9xDisplayOutput.h" />
@@ -633,9 +631,7 @@
     <ClCompile Include="CSaveLoadWithPreviewDlg.cpp" />
     <ClCompile Include="CShaderParamDlg.cpp" />
     <ClCompile Include="CVulkan.cpp" />
-    <ClCompile Include="CWaveOut.cpp" />
     <ClCompile Include="CWasapi.cpp" />
-    <ClCompile Include="CXAudio2.cpp" />
     <ClCompile Include="DumpAtEnd.cpp" />
     <ClCompile Include="image_functions.cpp" />
     <ClCompile Include="InputCustom.cpp" />

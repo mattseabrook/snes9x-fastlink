@@ -8,8 +8,6 @@
 #include "../snes9x.h"
 #include "../apu/apu.h"
 #include "wsnes9x.h"
-#include "CXAudio2.h"
-#include "CWaveOut.h"
 #include "CWasapi.h"
 #include "win32_sound.h"
 #include "win32_display.h"
@@ -17,12 +15,10 @@
 #define CLAMP(x, low, high) (((x) > (high)) ? (high) : (((x) < (low)) ? (low) : (x)))
 
 // available sound output methods
-CXAudio2 S9xXAudio2;
-CWaveOut S9xWaveOut;
 CWasapi S9xWasapi;
 
 // Interface used to access the sound output
-IS9xSoundOutput *S9xSoundOutput = &S9xXAudio2;
+IS9xSoundOutput *S9xSoundOutput = &S9xWasapi;
 
 static double last_volume = 1.0;
 
@@ -74,22 +70,11 @@ bool8 S9xOpenSoundDevice ()
 {
 	S9xSetSamplesAvailableCallback (NULL, NULL);
 
-	// Modern default: WASAPI first for low-latency/event-driven playback.
+	// WASAPI-only low-latency output path.
 	GUI.SoundDriver = WIN_WASAPI_SOUND_DRIVER;
 	S9xSoundOutput = &S9xWasapi;
 	if (!S9xSoundOutput->InitSoundOutput() || !S9xSoundOutput->SetupSound())
-	{
-		// Silent fallback path for compatibility if WASAPI is unavailable.
-		GUI.SoundDriver = WIN_XAUDIO2_SOUND_DRIVER;
-		S9xSoundOutput = &S9xXAudio2;
-		if (!S9xSoundOutput->InitSoundOutput() || !S9xSoundOutput->SetupSound())
-		{
-			GUI.SoundDriver = WIN_WAVEOUT_DRIVER;
-			S9xSoundOutput = &S9xWaveOut;
-			if (!S9xSoundOutput->InitSoundOutput() || !S9xSoundOutput->SetupSound())
-				return false;
-		}
-	}
+		return false;
 	
 	S9xSetSamplesAvailableCallback (S9xSoundCallback, NULL);
 	return true;
