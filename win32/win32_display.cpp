@@ -15,8 +15,6 @@
 #include "wsnes9x.h"
 #include "win32_display.h"
 #include "CDirect3D.h"
-
-#include "COpenGL.h"
 #include "CVulkan.h"
 #include "IS9xDisplayOutput.h"
 
@@ -26,7 +24,6 @@
 
 // available display output methods
 CDirect3D Direct3D;
-COpenGL OpenGL;
 CVulkan VulkanDriver;
 SSurface Src = {0};
 extern BYTE *ScreenBufferBlend;
@@ -35,6 +32,10 @@ typedef HRESULT (*DWMFLUSHPROC)();
 typedef HRESULT (*DWMISCOMPOSITIONENABLEDPROC)(BOOL *);
 DWMFLUSHPROC DwmFlushProc = NULL;
 DWMISCOMPOSITIONENABLEDPROC DwmIsCompositionEnabledProc = NULL;
+
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
 
 // Interface used to access the display output
 IS9xDisplayOutput *S9xDisplayOutput=&Direct3D;
@@ -108,30 +109,16 @@ returns true if successful, false otherwise
 */
 bool WinDisplayReset(void)
 {
-	const TCHAR* driverNames[] = { TEXT("Direct3D"), TEXT("OpenGL"), TEXT("Vulkan") };
-	static bool VulkanUsed = false;
-	static bool OpenGLUsed = false;
+	const TCHAR *oldDriverName = (GUI.outputMethod == VULKAN) ? TEXT("Vulkan") : TEXT("Direct3D");
 	S9xDisplayOutput->DeInitialize();
 
 	switch(GUI.outputMethod) {
 		default:
 		case DIRECT3D:
+			GUI.outputMethod = DIRECT3D;
 			S9xDisplayOutput = &Direct3D;
 			break;
-		case OPENGL:
-			if (VulkanUsed)
-			{
-				MessageBox(GUI.hWnd, TEXT("Changing to OpenGL requires a restart if you've already used Vulkan"), TEXT("Snes9x Display Driver"), MB_OK);
-				break;
-			}
-			S9xDisplayOutput = &OpenGL;
-			break;
 		case VULKAN:
-			if (OpenGLUsed)
-			{
-				MessageBox(GUI.hWnd, TEXT("Changing to Vulkan requires a restart if you've already used OpenGL"), TEXT("Snes9x Display Driver"), MB_OK);
-				break;
-			}
 			S9xDisplayOutput = &VulkanDriver;
 			break;
 	}
@@ -140,22 +127,11 @@ bool WinDisplayReset(void)
 
 	if (!initialized) {
 		S9xDisplayOutput->DeInitialize();
-		Sleep(500);
 
-		auto oldDriverName = driverNames[GUI.outputMethod];
+		GUI.outputMethod = DIRECT3D;
+		S9xDisplayOutput = &Direct3D;
 
-		if (GUI.outputMethod == VULKAN)
-		{
-			GUI.outputMethod = OPENGL;
-			S9xDisplayOutput = &OpenGL;
-		}
-		else
-		{
-			GUI.outputMethod = DIRECT3D;
-			S9xDisplayOutput = &Direct3D;
-		}
-
-		auto newDriverName = driverNames[GUI.outputMethod];
+		const TCHAR *newDriverName = TEXT("Direct3D");
 		TCHAR msg[512];
 		_stprintf(msg, TEXT("Couldn't load selected driver: %s. Trying %s."), oldDriverName, newDriverName);
 		MessageBox(GUI.hWnd, msg, TEXT("Snes9x Display Driver"), MB_OK | MB_ICONERROR);
@@ -164,10 +140,6 @@ bool WinDisplayReset(void)
 	}
 
 	if (initialized) {
-		if (S9xDisplayOutput == &VulkanDriver)
-			VulkanUsed = true;
-		if (S9xDisplayOutput == &OpenGL)
-			OpenGLUsed = true;
 		S9xGraphicsDeinit();
 		S9xSetWinPixelFormat();
 		S9xGraphicsInit();
@@ -329,25 +301,7 @@ bool8 S9xDeinitUpdate (int Width, int Height)
         LastHeight = Height;
     }
 
-    if (GUI.DWMSync && GUI.outputMethod == OPENGL)
-    {
-        BOOL DWMEnabled = false;
-        DwmIsCompositionEnabledProc(&DWMEnabled);
-
-        if (GUI.FullScreen || !DWMEnabled)
-            ((COpenGL *)S9xDisplayOutput)->SetSwapInterval(GUI.Vsync ? 1 : 0);
-        else
-            ((COpenGL *)S9xDisplayOutput)->SetSwapInterval(0);
-
-        WinRefreshDisplay();
-
-        if (DWMEnabled && !GUI.FullScreen)
-            DwmFlushProc();
-    }
-    else
-    {
-        WinRefreshDisplay();
-    }
+	WinRefreshDisplay();
 
     return (true);
 }
@@ -595,6 +549,14 @@ void WinThrottleFramerate()
 	if (Settings.SkipFrames != AUTO_FRAMERATE)
 		return;
 
+	if (Settings.TurboMode || Settings.Paused)
+		return;
+
+	// Avoid double-throttling when the render path already blocks (VSync/DWM)
+	// or when audio sync is pacing the emulator.
+	if (GUI.Vsync || GUI.DWMSync || Settings.SoundSync)
+		return;
+
 	if (!throttle_timer)
 	{
 		QueryPerformanceFrequency((LARGE_INTEGER *)&PCBase);
@@ -602,16 +564,18 @@ void WinThrottleFramerate()
 		PCFrameTimeNTSC = (int64_t)(PCBase / NTSC_PROGRESSIVE_FRAME_RATE);
 		PCFrameTimePAL = (int64_t)(PCBase / PAL_PROGRESSIVE_FRAME_RATE);
 
-		throttle_timer = CreateWaitableTimer(NULL, true, NULL);
+		throttle_timer = CreateWaitableTimerEx(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+		if (!throttle_timer)
+			throttle_timer = CreateWaitableTimer(NULL, true, NULL);
 		QueryPerformanceCounter((LARGE_INTEGER *)&PCStart);
 	}
 
-    if (Settings.FrameTime == Settings.FrameTimeNTSC)
-        PCFrameTime = PCFrameTimeNTSC;
-    else if (Settings.FrameTime == Settings.FrameTimePAL)
-        PCFrameTime = PCFrameTimePAL;
-    else
-        PCFrameTime = (__int64)(PCBase * Settings.FrameTime / 1e6);
+	if (Settings.FrameTime == Settings.FrameTimeNTSC)
+		PCFrameTime = PCFrameTimeNTSC;
+	else if (Settings.FrameTime == Settings.FrameTimePAL)
+		PCFrameTime = PCFrameTimePAL;
+	else
+		PCFrameTime = (__int64)(PCBase * Settings.FrameTime / 1e6);
 
 	QueryPerformanceCounter((LARGE_INTEGER *)&PCEnd);
 	int64_t time_left_us = ((PCFrameTime - (PCEnd - PCStart)) * 1000000) / PCBase;
@@ -619,17 +583,32 @@ void WinThrottleFramerate()
 	int64_t PCFrameTime_us = (int64_t)(PCFrameTime * 1000000.0 / PCBase);
 	if (time_left_us < -PCFrameTime_us / 10)
 	{
+		// When we're late by too much, resync to now to avoid accumulating jitter.
 		QueryPerformanceCounter((LARGE_INTEGER *)&PCStart);
 		return;
 	}
 	if (time_left_us > 0)
 	{
-		LARGE_INTEGER li;
-		li.QuadPart = -time_left_us * 10;
-		SetWaitableTimer(throttle_timer, &li, 0, NULL, NULL, false);
-		WaitForSingleObject(throttle_timer, INFINITE);
+		if (throttle_timer && time_left_us > 2000)
+		{
+			LARGE_INTEGER li;
+			li.QuadPart = -(time_left_us - 2000) * 10;
+			SetWaitableTimer(throttle_timer, &li, 0, NULL, NULL, false);
+			WaitForSingleObject(throttle_timer, INFINITE);
+		}
+
+		LARGE_INTEGER spin_start;
+		QueryPerformanceCounter(&spin_start);
+		while (spin_start.QuadPart < PCStart + PCFrameTime)
+		{
+			QueryPerformanceCounter(&spin_start);
+		}
 	}
-	PCStart += PCFrameTime;
+	QueryPerformanceCounter((LARGE_INTEGER *)&PCEnd);
+	if ((PCEnd - PCStart) > PCFrameTime + (PCFrameTime / 3))
+		PCStart = PCEnd;
+	else
+		PCStart += PCFrameTime;
 }
 
 std::vector<ShaderParam> *WinGetShaderParameters()

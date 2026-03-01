@@ -5,6 +5,7 @@
 \*****************************************************************************/
 
 #include <fcntl.h>
+#include <atomic>
 
 #include "SDL_joystick.h"
 #include "gtk_s9x.h"
@@ -125,7 +126,7 @@ const int b_breaks[] =
         -1
 };
 
-static int joystick_lock = 0;
+static std::atomic<int> joystick_lock{0};
 
 bool S9xPollButton(uint32 id, bool *pressed)
 {
@@ -427,24 +428,56 @@ s9xcommand_t S9xGetPortCommandT(const char *name)
 
 void S9xProcessEvents(bool8 block)
 {
-    JoyEvent event;
-    Binding  binding;
+    SDL_Event sdl_event;
+    JoyEvent  event;
+    Binding   binding;
 
-    if (S9xGrabJoysticks())
+    if (!S9xGrabJoysticks())
+        return;
+
+    // Poll SDL and report each button immediately — no intermediate queue
+    // buffering. Each SDL event is converted and delivered to the emulator
+    // core in a single pass, minimising latency between the USB HID report
+    // and the SNES joypad register latch.
+    while (SDL_PollEvent(&sdl_event))
     {
-        gui_config->joysticks.poll_events();
-        for (auto &j : gui_config->joysticks)
+        JoyDevice *jd = nullptr;
+
+        switch (sdl_event.type)
         {
-            while (j.second->get_event(&event))
+            case SDL_JOYAXISMOTION:
+                jd = gui_config->joysticks.get_joystick(sdl_event.jaxis.which);
+                break;
+            case SDL_JOYHATMOTION:
+                jd = gui_config->joysticks.get_joystick(sdl_event.jhat.which);
+                break;
+            case SDL_JOYBUTTONUP:
+            case SDL_JOYBUTTONDOWN:
+                jd = gui_config->joysticks.get_joystick(sdl_event.jbutton.which);
+                break;
+            case SDL_JOYDEVICEADDED:
+                gui_config->joysticks.add(sdl_event.jdevice.which);
+                continue;
+            case SDL_JOYDEVICEREMOVED:
+                gui_config->joysticks.remove(sdl_event.jdevice.which);
+                continue;
+        }
+
+        if (jd)
+        {
+            jd->handle_event(&sdl_event);
+
+            // Drain immediately after each SDL event — no accumulation
+            while (jd->get_event(&event))
             {
-                binding = Binding(j.second->joynum, event.parameter, 0);
+                binding = Binding(jd->joynum, event.parameter, 0);
                 S9xReportButton(binding.hex(), event.state == JOY_PRESSED ? 1 : 0);
                 gui_config->screensaver_needs_reset = true;
             }
         }
-
-        S9xReleaseJoysticks();
     }
+
+    S9xReleaseJoysticks();
 }
 
 

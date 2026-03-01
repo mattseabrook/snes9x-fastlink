@@ -312,7 +312,7 @@ int CSaveLoadWithPreviewDlg::show()
     delete_preview_bmps();
     if(init_preview_bmps())
     {
-		RedrawWindow(GUI.hWnd, 0, 0, RDW_INTERNALPAINT); // workaround to get the dialog to show in OpenGL fullscreen / emulated fullscreen
+        RedrawWindow(GUI.hWnd, 0, 0, RDW_INTERNALPAINT); // workaround to get the dialog to show in fullscreen / emulated fullscreen
         ret = DialogBoxParam(GUI.hInstance, MAKEINTRESOURCE(IDD_DIALOG_LOAD_PREVIEW), GUI.hWnd, DlgLoadWithPreview, (LPARAM)this);
     }
 

@@ -4,14 +4,6 @@
    For further information, consult the LICENSE file in the root directory.
 \*****************************************************************************/
 
-#pragma comment(linker, \
-    "\"/manifestdependency:type='Win32' "\
-    "name='Microsoft.Windows.Common-Controls' "\
-    "version='6.0.0.0' "\
-    "processorArchitecture='*' "\
-    "publicKeyToken='6595b64144ccf1df' "\
-    "language='*'\"")
-
 
 //  Win32 GUI code
 //  (c) Copyright 2003-2006 blip, Nach, Matthew Kendora, funkyass and nitsuja
@@ -41,6 +33,7 @@
 #include "../snes9x.h"
 #include "../memmap.h"
 #include "../memserve.h"
+#include "../memshare.h"
 #include "../cpuexec.h"
 #include "../display.h"
 #include "../cheats.h"
@@ -1576,6 +1569,23 @@ LRESULT CALLBACK WinProc(
 
 		return 0;
 
+	case WM_INPUT:
+		S9xWinHandleRawInput((HRAWINPUT)lParam);
+		return 0;
+
+	case WM_INPUT_DEVICE_CHANGE:
+		S9xDetectJoypads();
+		return 0;
+
+	case WM_DEVICECHANGE:
+		if (wParam == DBT_DEVICEARRIVAL ||
+			wParam == DBT_DEVICEREMOVECOMPLETE ||
+			wParam == DBT_DEVNODES_CHANGED)
+		{
+			S9xDetectJoypads();
+		}
+		break;
+
 	case WM_COMMAND:
 	{
 		int cmd_id = wParam & 0xffff;
@@ -2681,6 +2691,7 @@ BOOL WinInit( HINSTANCE hInstance)
         return FALSE;
 
     GUI.hDC = GetDC (GUI.hWnd);
+	S9xWinRegisterRawInput(GUI.hWnd);
     GUI.GunSight = LoadCursor (hInstance, MAKEINTRESOURCE (IDC_CURSOR_SCOPE));
     GUI.Arrow = LoadCursor (NULL, IDC_ARROW);
     GUI.Accelerators = LoadAccelerators (hInstance, MAKEINTRESOURCE (IDR_SNES9X_ACCELERATORS));
@@ -2707,6 +2718,11 @@ void S9xExtraUsage ()
 }
 
 // handles joystick hotkey presses
+static inline bool IsEmulationBlockedForInput()
+{
+	return Settings.StopEmulation || (Settings.Paused && !Settings.FrameAdvance) || Settings.ForcedPause;
+}
+
 VOID CALLBACK HotkeyTimer( UINT idEvent, UINT uMsg, DWORD dwUser, DWORD dw1, DWORD dw2)
 {
 //	static int lastTime = timeGetTime();
@@ -2716,7 +2732,7 @@ VOID CALLBACK HotkeyTimer( UINT idEvent, UINT uMsg, DWORD dwUser, DWORD dw1, DWO
 
 		if(GUI.JoystickHotkeys)
 		{
-			if (Settings.StopEmulation || (Settings.Paused && !Settings.FrameAdvance) || Settings.ForcedPause)
+			if (IsEmulationBlockedForInput())
 			{
 				S9xWinScanJoypads();
 			}
@@ -2790,9 +2806,12 @@ static VOID CALLBACK HotkeyTimerQueueThunk(PVOID, BOOLEAN)
 
 static void StartHotkeyTimer()
 {
+	const DWORD kHotkeyTimerPeriodMs = 8;
+
 	if (!GUI.hHotkeyTimer)
 	{
-		CreateTimerQueueTimer(&GUI.hHotkeyTimer, NULL, HotkeyTimerQueueThunk, NULL, 0, 32, WT_EXECUTEDEFAULT);
+		if (!CreateTimerQueueTimer(&GUI.hHotkeyTimer, NULL, HotkeyTimerQueueThunk, NULL, 0, kHotkeyTimerPeriodMs, WT_EXECUTEDEFAULT))
+			GUI.hHotkeyTimer = NULL;
 	}
 }
 
@@ -2800,8 +2819,9 @@ static void StopHotkeyTimer()
 {
 	if (GUI.hHotkeyTimer)
 	{
-		DeleteTimerQueueTimer(NULL, GUI.hHotkeyTimer, NULL);
+		HANDLE timer = GUI.hHotkeyTimer;
 		GUI.hHotkeyTimer = NULL;
+		DeleteTimerQueueTimer(NULL, timer, NULL);
 	}
 }
 
@@ -2809,6 +2829,17 @@ static void EnsureInputDisplayUpdated()
 {
 	if(GUI.FrameAdvanceJustPressed==1 && Settings.Paused && Settings.DisplayPressedKeys==2 && GUI.ControllerOption != SNES_JOYPAD && GUI.ControllerOption != SNES_MULTIPLAYER5 && GUI.ControllerOption != SNES_MULTIPLAYER8)
 		WinRefreshDisplay();
+}
+
+static bool DispatchGuiMessage(MSG &msg)
+{
+	if (!TranslateAccelerator(GUI.hWnd, GUI.Accelerators, &msg))
+	{
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+
+	return msg.message != WM_QUIT;
 }
 
 // for "frame advance skips non-input frames" feature
@@ -2829,21 +2860,24 @@ void S9xOnSNESPadRead()
 
 			// wait until either unpause or next frame advance
 			// note: using GUI.hWnd instead of NULL for PeekMessage/GetMessage breaks some non-modal dialogs
-			MSG msg;
-			while (Settings.StopEmulation || (Settings.Paused && !Settings.FrameAdvance) ||
-				Settings.ForcedPause ||
-				PeekMessage (&msg, NULL, 0, 0, PM_NOREMOVE))
+			MSG msg = {};
+			for (;;)
 			{
-				if (!GetMessage (&msg, NULL, 0, 0))
+				const bool waitingForResume = IsEmulationBlockedForInput();
+
+				if (!waitingForResume && !PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE))
+					break;
+
+				if (!GetMessage(&msg, NULL, 0, 0))
 				{
 					PostMessage(GUI.hWnd, WM_QUIT, 0,0);
 					return;
 				}
 
-				if (!TranslateAccelerator (GUI.hWnd, GUI.Accelerators, &msg))
+				if (!DispatchGuiMessage(msg))
 				{
-					TranslateMessage (&msg);
-					DispatchMessage (&msg);
+					PostMessage(GUI.hWnd, WM_QUIT, 0, 0);
+					return;
 				}
 			}
 
@@ -3203,15 +3237,16 @@ void ControlPadFlagsToS9xPseudoPointer(uint32 p)
 static void ProcessInput(void)
 {
 #ifdef NETPLAY_SUPPORT
-    if (!Settings.NetPlay)
+    if (Settings.NetPlay)
+        return;
 #endif
-	S9xWinScanJoypads ();
+	S9xWinScanJoypads();
 
-	extern uint32 joypads [8];
-	for(int i = 0 ; i < 8 ; i++)
+	extern uint32 joypads[8];
+	for (int i = 0; i < 8; i++)
 		ControlPadFlagsToS9xReportButtons(i, joypads[i]);
 
-	if (GUI.ControllerOption==SNES_JUSTIFIER_2)
+	if (GUI.ControllerOption == SNES_JUSTIFIER_2)
 		ControlPadFlagsToS9xPseudoPointer(joypads[1]);
 }
 
@@ -3226,96 +3261,79 @@ static void ProcessInput(void)
 void DeinitS9x(void);
 
 int WINAPI WinMain(
-				   HINSTANCE hInstance,
-				   HINSTANCE hPrevInstance,
-				   LPSTR lpCmdLine,
-				   int nCmdShow)
+			   HINSTANCE hInstance,
+			   HINSTANCE hPrevInstance,
+			   LPSTR lpCmdLine,
+			   int nCmdShow)
 {
 	Settings.StopEmulation = TRUE;
-
 	SetCurrentDirectory(S9xGetDirectoryT(DEFAULT_DIR));
 
-	// Redirect stderr and stdout to file. It wouldn't go to any commandline anyway.
-	FILE* fout = freopen("stdout.txt", "w", stdout);
-	if(fout) setvbuf(fout, NULL, _IONBF, 0);
-	FILE* ferr = freopen("stderr.txt", "w", stderr);
-	if(ferr) setvbuf(ferr, NULL, _IONBF, 0);
-
-	DWORD wSoundTimerRes;
-
-	WinRegisterConfigItems ();
-
+	WinRegisterConfigItems();
 	ConfigFile::SetAlphaSort(false);
 	ConfigFile::SetTimeSort(false);
 
-    const TCHAR *rom_filename = WinParseCommandLineAndLoadConfigFile (GetCommandLine());
-    WinSaveConfigFile ();
-	WinLockConfigFile ();
-
+	const TCHAR *rom_filename = WinParseCommandLineAndLoadConfigFile(GetCommandLine());
+	WinSaveConfigFile();
+	WinLockConfigFile();
 	LoadExts();
 
-    ControllerOptionsFromControllers();
-    ChangeInputDevice();
+	ControllerOptionsFromControllers();
+	ChangeInputDevice();
+	WinInit(hInstance);
 
-    WinInit (hInstance);
-	if(GUI.HideMenu)
-	{
-		SetMenu (GUI.hWnd, NULL);
-	}
+	if (GUI.HideMenu)
+		SetMenu(GUI.hWnd, nullptr);
 
-    DEV_BROADCAST_DEVICEINTERFACE notificationFilter;
-    ZeroMemory(&notificationFilter, sizeof(notificationFilter));
-    notificationFilter.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
-    notificationFilter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
-    RegisterDeviceNotification(GUI.hWnd, &notificationFilter, DEVICE_NOTIFY_ALL_INTERFACE_CLASSES);
+	DEV_BROADCAST_DEVICEINTERFACE notificationFilter = {};
+	notificationFilter.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
+	notificationFilter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+	RegisterDeviceNotification(GUI.hWnd, &notificationFilter, DEVICE_NOTIFY_ALL_INTERFACE_CLASSES);
 
 	InitRenderFilters();
+	GUI.ControlForced = 0xff;
+	Settings.Rewinding = false;
 
-    GUI.ControlForced = 0xff;
-    Settings.Rewinding = false;
-
-    S9xSetRecentGames ();
-
+	S9xSetRecentGames();
 	RestoreMainWinPos();
 
-	void InitSnes9x (void);
-	InitSnes9x ();
+	void InitSnes9x(void);
+	InitSnes9x();
 
-	if(GUI.FullScreen) {
+	if (GUI.FullScreen)
+	{
 		GUI.FullScreen = false;
 		ToggleFullScreen();
 	}
 
-    TIMECAPS tc;
-    if (timeGetDevCaps(&tc, sizeof(TIMECAPS))== TIMERR_NOERROR)
-    {
-#ifdef __MINGW32__
-        wSoundTimerRes = min<int>(max<int>(tc.wPeriodMin, 1), tc.wPeriodMax);
-#else
-        wSoundTimerRes = min(max(tc.wPeriodMin, 1), tc.wPeriodMax);
-#endif
-        timeBeginPeriod (wSoundTimerRes);
-    }
-	else
+	TIMECAPS tc;
+	DWORD wSoundTimerRes = 5;
+	if (timeGetDevCaps(&tc, sizeof(TIMECAPS)) == TIMERR_NOERROR)
 	{
-		wSoundTimerRes = 5;
-        timeBeginPeriod (wSoundTimerRes);
+		wSoundTimerRes = tc.wPeriodMin;
+		if (wSoundTimerRes < 1)
+			wSoundTimerRes = 1;
+		if (wSoundTimerRes > tc.wPeriodMax)
+			wSoundTimerRes = tc.wPeriodMax;
 	}
+	timeBeginPeriod(wSoundTimerRes);
 
-    Settings.StopEmulation = TRUE;
+	Settings.StopEmulation = TRUE;
 
-	if(GUI.JoystickHotkeys || GUI.BackgroundInput)
-	    StartHotkeyTimer();
+	if (GUI.JoystickHotkeys || GUI.BackgroundInput)
+		StartHotkeyTimer();
 	else
-		GUI.hHotkeyTimer = NULL;
+		GUI.hHotkeyTimer = nullptr;
 
-    GUI.ServerTimerSemaphore = CreateSemaphore (NULL, 0, 10, NULL);
+#ifdef NETPLAY_SUPPORT
+	GUI.ServerTimerSemaphore = CreateSemaphore(nullptr, 0, 10, nullptr);
+#endif
 
 	if (rom_filename)
 	{
-		if (Settings.Multi) // we found -cartB parameter
+		if (Settings.Multi)
 		{
-			lstrcpy(multiRomA, rom_filename); // for the mutli cart dialog
+			lstrcpy(multiRomA, rom_filename);
 			LoadROM(rom_filename, multiRomB);
 		}
 		else
@@ -3324,195 +3342,191 @@ int WINAPI WinMain(
 		}
 
 		if (*Settings.InitialSnapshotFilename)
-		{
 			S9xUnfreezeGame(Settings.InitialSnapshotFilename);
-		}
 	}
 
 	S9xUnmapAllControls();
 	S9xSetupDefaultKeymap();
 
-	std::thread MemoryServeThread;		// FastLink
+	std::thread MemoryServeThread;
 	bool isMemServeRunning = false;
+	bool isMemShareRunning = false;
 
 	DWORD lastTime = timeGetTime();
+	MSG msg = {};
 
-    MSG msg;
-
-    while (TRUE)
-    {
+	for (;;) [[likely]]
+	{
 		EnsureInputDisplayUpdated();
 
-		// note: using GUI.hWnd instead of NULL for PeekMessage/GetMessage breaks some non-modal dialogs
-        while (Settings.StopEmulation || (Settings.Paused && !Settings.FrameAdvance) ||
-			Settings.ForcedPause ||
-			PeekMessage (&msg, NULL, 0, 0, PM_NOREMOVE))
-        {
-            if (!GetMessage (&msg, NULL, 0, 0))
-                goto loop_exit; // got WM_QUIT
+		while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+		{
+			if (msg.message == WM_QUIT)
+				goto loop_exit;
 
-            if (!TranslateAccelerator (GUI.hWnd, GUI.Accelerators, &msg))
-            {
-                TranslateMessage (&msg);
-                DispatchMessage (&msg);
-            }
+			if (!DispatchGuiMessage(msg))
+				goto loop_exit;
+		}
 
-			S9xSetSoundMute(GUI.Mute || Settings.ForcedPause || (Settings.Paused && (!Settings.FrameAdvance || GUI.FAMute)));
-        }
+		const bool isPaused = IsEmulationBlockedForInput();
+		S9xSetSoundMute(GUI.Mute || (isPaused && (!Settings.FrameAdvance || GUI.FAMute)));
+
+		if (isPaused) [[unlikely]]
+		{
+			WaitMessage();
+			continue;
+		}
 
 #ifdef NETPLAY_SUPPORT
-        if (!Settings.NetPlay || !NetPlay.PendingWait4Sync ||
-            WaitForSingleObject (GUI.ClientSemaphore, 100) != WAIT_TIMEOUT)
-        {
-            if (NetPlay.PendingWait4Sync)
-            {
-                NetPlay.PendingWait4Sync = FALSE;
-                NetPlay.FrameCount++;
-                S9xNPStepJoypadHistory ();
-            }
+		if (!Settings.NetPlay || !NetPlay.PendingWait4Sync ||
+			WaitForSingleObject(GUI.ClientSemaphore, 100) != WAIT_TIMEOUT)
+		{
+			if (NetPlay.PendingWait4Sync)
+			{
+				NetPlay.PendingWait4Sync = FALSE;
+				NetPlay.FrameCount++;
+				S9xNPStepJoypadHistory();
+			}
 #endif
-			if(watches[0].on)
-			{
-				// copy the memory used by each active watch
-				for(unsigned int i = 0 ; i < sizeof(watches)/sizeof(*watches) ; i++)
-				{
-					if(watches[i].on)
-					{
-						int address = watches[i].address - 0x7E0000;
-						const uint8* source;
-						if(address < 0x20000)
-							source = Memory.RAM + address ;
-						else if(address < 0x30000)
-							source = Memory.SRAM + address  - 0x20000;
-						else
-							source = Memory.FillRAM + address  - 0x30000;
 
-						CopyMemory(Cheat.CWatchRAM + address, source, watches[i].size);
-					}
-				}
-			}
-			if(cheatSearchHWND)
+			for (const auto &w : watches)
 			{
-				if(timeGetTime() - lastTime >= 100)
+				if (w.on) [[unlikely]]
 				{
-					PostMessage(cheatSearchHWND, WM_COMMAND, (WPARAM)(IDC_REFRESHLIST),(LPARAM)(NULL));
-					lastTime = timeGetTime();
+					const int address = w.address - 0x7E0000;
+					const uint8 *source =
+						(address < 0x20000) ? Memory.RAM + address :
+						(address < 0x30000) ? Memory.SRAM + address - 0x20000 :
+											  Memory.FillRAM + address - 0x30000;
+					memcpy(Cheat.CWatchRAM + address, source, w.size);
 				}
 			}
 
-			if(Settings.FrameAdvance)
+			if (cheatSearchHWND) [[unlikely]]
 			{
-				if(GFX.InfoStringTimeout > 4)
-					GFX.InfoStringTimeout = 4;
-
-				if(!GUI.FASkipsNonInput)
-					Settings.FrameAdvance = false;
+				DWORD now = timeGetTime();
+				if (now - lastTime >= 100)
+				{
+					PostMessage(cheatSearchHWND, WM_COMMAND, IDC_REFRESHLIST, 0);
+					lastTime = now;
+				}
 			}
-			if(GUI.FrameAdvanceJustPressed)
+
+			if (Settings.FrameAdvance)
+			{
+				GFX.InfoStringTimeout = min((int)GFX.InfoStringTimeout, 4);
+				Settings.FrameAdvance = GUI.FASkipsNonInput;
+			}
+			if (GUI.FrameAdvanceJustPressed)
 				GUI.FrameAdvanceJustPressed--;
-
-			ProcessInput();
 
 			if (GUI.rewindBufferSize
 #ifdef NETPLAY_SUPPORT
 				&& !Settings.NetPlay
 #endif
-				) {
-				if (Settings.Rewinding) {
-					Settings.Rewinding = stateMan.pop();
-				}
-				else {
-					if (IPPU.TotalEmulatedFrames % GUI.rewindGranularity == 0)
-						stateMan.push();
-				}
-			}
-
-			// FastLink
-			if (Settings.MemoryServe && !isMemServeRunning) {
-				isMemServeRunning = true;
-				MemoryServeThread = std::thread(MemServe);
-			}
-			if (!Settings.MemoryServe && isMemServeRunning) {
-				MemServeStop();  // Signal shutdown (non-blocking)
-				if (MemoryServeThread.joinable()) {
-					MemoryServeThread.join();  // Now safe - select() will timeout
-				}
-				isMemServeRunning = false;
-			}
-
-			S9xMainLoop();
-			GUI.FrameCount++;
-			if (GUI.CursorTimer)
+				)
 			{
-				if (--GUI.CursorTimer == 0)
+				if (Settings.Rewinding)
+					Settings.Rewinding = stateMan.pop();
+				else if (IPPU.TotalEmulatedFrames % GUI.rewindGranularity == 0)
+					stateMan.push();
+			}
+
+			if (Settings.MemoryServe != isMemServeRunning) [[unlikely]]
+			{
+				isMemServeRunning = Settings.MemoryServe;
+				if (isMemServeRunning)
 				{
-					if (GUI.ControllerOption != SNES_SUPERSCOPE && GUI.ControllerOption != SNES_JUSTIFIER && GUI.ControllerOption != SNES_JUSTIFIER_2 && GUI.ControllerOption != SNES_MACSRIFLE)
-						SetCursor(NULL);
+					MemoryServeThread = std::thread(MemServe);
+				}
+				else
+				{
+					MemServeStop();
+					if (MemoryServeThread.joinable())
+						MemoryServeThread.join();
 				}
 			}
+
+			if (Settings.MemoryMapServe != isMemShareRunning) [[unlikely]]
+			{
+				isMemShareRunning = Settings.MemoryMapServe;
+				if (isMemShareRunning)
+					isMemShareRunning = MemShareStart();
+				else
+					MemShareStop();
+			}
+
+			WinThrottleFramerate();
+			ProcessInput();
+			S9xMainLoop();
+
+			if (isMemShareRunning)
+			{
+				LARGE_INTEGER emuCounter;
+				QueryPerformanceCounter(&emuCounter);
+				MemSharePublish(Memory.RAM, sizeof(Memory.RAM), static_cast<uint64>(GUI.FrameCount + 1), emuCounter.QuadPart);
+			}
+
+			GUI.FrameCount++;
+
+			if (GUI.CursorTimer && --GUI.CursorTimer == 0) [[unlikely]]
+			{
+				if (GUI.ControllerOption != SNES_SUPERSCOPE &&
+					GUI.ControllerOption != SNES_JUSTIFIER &&
+					GUI.ControllerOption != SNES_JUSTIFIER_2 &&
+					GUI.ControllerOption != SNES_MACSRIFLE)
+					SetCursor(nullptr);
+			}
+
 #ifdef NETPLAY_SUPPORT
-        }
+		}
 #endif
-        if (CPU.Flags & DEBUG_MODE_FLAG)
-        {
-            Settings.Paused = TRUE;
-            Settings.FrameAdvance = false;
-            CPU.Flags &= ~DEBUG_MODE_FLAG;
-        }
-    }
+
+		if (CPU.Flags & DEBUG_MODE_FLAG) [[unlikely]]
+		{
+			Settings.Paused = true;
+			Settings.FrameAdvance = false;
+			CPU.Flags &= ~DEBUG_MODE_FLAG;
+		}
+	}
 
 loop_exit:
 
-	// FastLink: Clean shutdown of MemServe thread
-	if (isMemServeRunning) {
+	if (isMemServeRunning)
+	{
 		MemServeStop();
-		if (MemoryServeThread.joinable()) {
+		if (MemoryServeThread.joinable())
 			MemoryServeThread.join();
-		}
-		isMemServeRunning = false;
 	}
 
-	VisualizationShutdown();
+	if (isMemShareRunning)
+		MemShareStop();
 
+	VisualizationShutdown();
 	Settings.StopEmulation = TRUE;
 
-	// stop sound playback
 	CloseSoundDevice();
-
 	StopHotkeyTimer();
+	timeEndPeriod(wSoundTimerRes);
 
-    timeEndPeriod(wSoundTimerRes);
+	if (!Settings.StopEmulation)
+	{
+		Memory.SaveSRAM(S9xGetFilename(".srm", SRAM_DIR).c_str());
+		S9xSaveCheatFile(S9xGetFilename(".cht", CHEAT_DIR).c_str());
+	}
 
-    if (!Settings.StopEmulation)
-    {
-        Memory.SaveSRAM (S9xGetFilename (".srm", SRAM_DIR).c_str());
-        S9xSaveCheatFile (S9xGetFilename (".cht", CHEAT_DIR).c_str());
-    }
-    //if (!VOODOO_MODE && !GUI.FullScreen)
-    //    GetWindowRect (GUI.hWnd, &GUI.window_size);
-
-
-	// this goes here, because the avi
-	// recording might have messed with
-	// the auto frame skip setting
-	// (it needs to come before WinSave)
 	DoAVIClose(0);
+	S9xMovieShutdown();
 
-	S9xMovieShutdown (); // must happen before saving config
-
-	WinUnlockConfigFile ();
-    WinSaveConfigFile ();
+	WinUnlockConfigFile();
+	WinSaveConfigFile();
 	WinCleanupConfigData();
-
 	Memory.Deinit();
-
 	ClearExts();
-
 	DeInitRenderFilters();
-
 	S9xGraphicsDeinit();
 	S9xDeinitAPU();
-	WinDeleteRecentGamesList ();
+	WinDeleteRecentGamesList();
 	DeinitS9x();
 
 	return msg.wParam;
@@ -7504,7 +7518,7 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 	static bool prevStretch, prevAspectRatio, prevHeightExtend, prevAutoDisplayMessages, prevBilinearFilter, prevShaderEnabled, prevBlendHires, prevIntegerScaling, prevNTSCScanlines;
 	static int prevAspectWidth;
 	static OutputMethod prevOutputMethod;
-	static TCHAR prevD3DShaderFile[MAX_PATH],prevOGLShaderFile[MAX_PATH];
+	static TCHAR prevD3DShaderFile[MAX_PATH],prevVulkanShaderFile[MAX_PATH];
 
 	switch(msg)
 	{
@@ -7539,7 +7553,7 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 		prevNTSCScanlines = GUI.NTSCScanlines;
 
         lstrcpy(prevD3DShaderFile, GUI.D3DshaderFileName);
-        lstrcpy(prevOGLShaderFile, GUI.OGLshaderFileName);
+		lstrcpy(prevVulkanShaderFile, GUI.VulkanShaderFileName);
 
         _stprintf(s, TEXT("Current: %dx%d %dbit %dHz"), GUI.FullscreenMode.width, GUI.FullscreenMode.height, GUI.FullscreenMode.depth, GUI.FullscreenMode.rate);
         SendDlgItemMessage(hDlg, IDC_CURRMODE, WM_SETTEXT, 0, (LPARAM)s);
@@ -7548,8 +7562,8 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
             SendDlgItemMessage(hDlg, IDC_DBLBUFFER, BM_SETCHECK, (WPARAM)BST_CHECKED, 0);
         if (GUI.Vsync)
             SendDlgItemMessage(hDlg, IDC_VSYNC, BM_SETCHECK, (WPARAM)BST_CHECKED, 0);
-		if (GUI.ReduceInputLag)
-			SendDlgItemMessage(hDlg, IDC_REDUCEINPUTLAG, BM_SETCHECK, (WPARAM)BST_CHECKED, 0);
+		SendDlgItemMessage(hDlg, IDC_REDUCEINPUTLAG, BM_SETCHECK, (WPARAM)BST_CHECKED, 0);
+		EnableWindow(GetDlgItem(hDlg, IDC_REDUCEINPUTLAG), FALSE);
 		if (GUI.NTSCScanlines)
 			SendDlgItemMessage(hDlg, IDC_NTSCSCANLINES, BM_SETCHECK, (WPARAM)BST_CHECKED, 0);
         SendDlgItemMessage(hDlg, IDC_FRAMERATESKIPSLIDER, TBM_SETRANGE, (WPARAM)true, (LPARAM)MAKELONG(0, 9));
@@ -7630,7 +7644,7 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
             EnableWindow(GetDlgItem(hDlg, IDC_SHADER_GLSL_PARAMETERS), TRUE);
         }
         SetDlgItemText(hDlg, IDC_SHADER_HLSL_FILE, GUI.D3DshaderFileName);
-        SetDlgItemText(hDlg, IDC_SHADER_GLSL_FILE, GUI.OGLshaderFileName);
+		SetDlgItemText(hDlg, IDC_SHADER_GLSL_FILE, GUI.VulkanShaderFileName);
 
         lpfnOldWndProc = (WNDPROC)SetWindowLongPtr(GetDlgItem(hDlg, IDC_SHADER_GROUP), GWLP_WNDPROC, (LONG_PTR)GroupBoxCheckBoxTitle);
 
@@ -7642,7 +7656,6 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
             SendDlgItemMessage(hDlg, IDC_OUTPUTMETHOD, CB_SETITEMDATA, inserted_index, value);
         };
         InsertOutputMethod((LPARAM)TEXT("Direct3D"), DIRECT3D);
-        InsertOutputMethod((LPARAM)TEXT("OpenGL"), OPENGL);
         InsertOutputMethod((LPARAM)TEXT("Vulkan"), VULKAN);
 
         SelectOutputMethodInVideoDropdown(hDlg, GUI.outputMethod);
@@ -7826,7 +7839,7 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 			EnableWindow(GetDlgItem(hDlg, IDC_SHADER_GLSL_PARAMETERS), GUI.shaderEnabled);
 
 			GetDlgItemText(hDlg,IDC_SHADER_HLSL_FILE,GUI.D3DshaderFileName,MAX_PATH);
-			GetDlgItemText(hDlg,IDC_SHADER_GLSL_FILE,GUI.OGLshaderFileName,MAX_PATH);
+			GetDlgItemText(hDlg,IDC_SHADER_GLSL_FILE,GUI.VulkanShaderFileName,MAX_PATH);
 			WinDisplayApplyChanges();
 			WinRefreshDisplay();
 			break;
@@ -7863,17 +7876,17 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 			ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
 			if(GetOpenFileName(&ofn)) {
 				SetDlgItemText(hDlg,IDC_SHADER_GLSL_FILE,openFileName);
-				lstrcpy(GUI.OGLshaderFileName,openFileName);
+				lstrcpy(GUI.VulkanShaderFileName,openFileName);
 				WinDisplayApplyChanges();
 				WinRefreshDisplay();
 			}
 			break;
         case IDC_SHADER_GLSL_PARAMETERS:
         {
-            GetDlgItemText(hDlg, IDC_SHADER_GLSL_FILE, GUI.OGLshaderFileName, MAX_PATH);
-			int len = lstrlen(GUI.OGLshaderFileName);
-            if((len < 6 || _tcsncicmp(&GUI.OGLshaderFileName[len - 6], TEXT(".glslp"), 6)) &&
-			   (len < 7 || _tcsncicmp(&GUI.OGLshaderFileName[len - 7], TEXT(".slangp"), 7))) {
+			GetDlgItemText(hDlg, IDC_SHADER_GLSL_FILE, GUI.VulkanShaderFileName, MAX_PATH);
+			int len = lstrlen(GUI.VulkanShaderFileName);
+			if((len < 6 || _tcsncicmp(&GUI.VulkanShaderFileName[len - 6], TEXT(".glslp"), 6)) &&
+			   (len < 7 || _tcsncicmp(&GUI.VulkanShaderFileName[len - 7], TEXT(".slangp"), 7))) {
                 MessageBox(GUI.hWnd, TEXT("Parameters are only supported for .glslp and .slangp shaders"), TEXT("No Parameters"), MB_OK | MB_ICONINFORMATION);
                 break;
             }
@@ -7885,7 +7898,7 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 				auto save_function = WinGetShaderSaveFunction();
 				CShaderParamDlg dlg(*shader_parameters, save_function);
 				if (dlg.show()) {
-					SetDlgItemText(hDlg, IDC_SHADER_GLSL_FILE, GUI.OGLshaderFileName);
+					SetDlgItemText(hDlg, IDC_SHADER_GLSL_FILE, GUI.VulkanShaderFileName);
 					WinDisplayApplyChanges();
 					WinRefreshDisplay();
 				}
@@ -7948,7 +7961,7 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 			Settings.BilinearFilter = (bool)(IsDlgButtonChecked(hDlg,IDC_BILINEAR)==BST_CHECKED);
 			Settings.ShowOverscan = IsDlgButtonChecked(hDlg, IDC_HEIGHT_EXTEND)!=0;
 			GUI.DoubleBuffered = (bool)(IsDlgButtonChecked(hDlg, IDC_DBLBUFFER)==BST_CHECKED);
-			GUI.ReduceInputLag = (bool)(IsDlgButtonChecked(hDlg, IDC_REDUCEINPUTLAG) == BST_CHECKED);
+			GUI.ReduceInputLag = true;
 			GUI.Vsync = (bool)(IsDlgButtonChecked(hDlg, IDC_VSYNC
 
 				)==BST_CHECKED);
@@ -8039,7 +8052,7 @@ INT_PTR CALLBACK DlgFunky(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 				GUI.BlendHiRes = prevBlendHires;
 				GUI.NTSCScanlines = prevNTSCScanlines;
 				lstrcpy(GUI.D3DshaderFileName,prevD3DShaderFile);
-				lstrcpy(GUI.OGLshaderFileName,prevOGLShaderFile);
+				lstrcpy(GUI.VulkanShaderFileName,prevVulkanShaderFile);
 			}
 
 			EndDialog(hDlg,0);

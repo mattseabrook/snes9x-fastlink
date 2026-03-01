@@ -76,10 +76,10 @@ bool CVulkan::Initialize(HWND hWnd)
         InitImGui();
     }
 
-    if (GUI.shaderEnabled && GUI.OGLshaderFileName && GUI.OGLshaderFileName[0])
+    if (GUI.shaderEnabled && GUI.VulkanShaderFileName && GUI.VulkanShaderFileName[0])
     {
         shaderchain = std::make_unique<Vulkan::ShaderChain>(context.get());
-        std::string shaderstring = std::string(_tToChar(GUI.OGLshaderFileName));
+        std::string shaderstring = std::string(_tToChar(GUI.VulkanShaderFileName));
         if (!shaderchain->load_shader_preset(shaderstring))
         {
             shaderchain.reset();
@@ -141,7 +141,7 @@ void CVulkan::Render(SSurface Src)
 
     bool result;
 
-    if (S9xImGuiDraw(windowSize.right, windowSize.bottom))
+    if (S9xImGuiRunning() && S9xImGuiDraw(windowSize.right, windowSize.bottom))
     {
         ImDrawData* draw_data = ImGui::GetDrawData();
 
@@ -160,14 +160,9 @@ void CVulkan::Render(SSurface Src)
         result = simple_output->do_frame_without_swap(Dst.Surface, Dst.Width, Dst.Height, Dst.Pitch, displayRect.left, displayRect.top, displayRect.right - displayRect.left, displayRect.bottom - displayRect.top);
     }
 
-    WinThrottleFramerate();
-
     if (result)
     {
         context->swapchain->swap();
-
-        if (GUI.ReduceInputLag)
-            context->wait_idle();
     }
 }
 
@@ -181,7 +176,6 @@ bool CVulkan::ChangeRenderSize(unsigned int newWidth, unsigned int newHeight)
     if (newWidth != current_width || newHeight != current_height || vsync_changed)
     {
         context->recreate_swapchain(newWidth, newHeight);
-        context->wait_idle();
         current_width = newWidth;
         current_height = newHeight;
     }
@@ -198,7 +192,7 @@ bool CVulkan::ApplyDisplayChanges(void)
         return true;
     }
 
-    std::string shadername = std::string(_tToChar(GUI.OGLshaderFileName));
+    std::string shadername = std::string(_tToChar(GUI.VulkanShaderFileName));
     if (GUI.shaderEnabled && shaderchain && (shadername != current_shadername))
     {
         shaderchain.reset();

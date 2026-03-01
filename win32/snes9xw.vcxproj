@@ -140,7 +140,7 @@
       <Culture>0x0409</Culture>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>comctl32.lib;winmm.lib;opengl32.lib;glu32.lib;wsock32.lib;ws2_32.lib;dsound.lib;dxguid.lib;delayimp.lib;vfw32.lib;msxml2.lib;shlwapi.lib;d3d9.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;winmm.lib;wsock32.lib;ws2_32.lib;dsound.lib;dxguid.lib;delayimp.lib;vfw32.lib;msxml2.lib;shlwapi.lib;d3d9.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <EnableUAC>false</EnableUAC>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -191,7 +191,7 @@
       <Culture>0x0409</Culture>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>comctl32.lib;winmm.lib;opengl32.lib;glu32.lib;wsock32.lib;dsound.lib;dxguid.lib;delayimp.lib;vfw32.lib;msxml2.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;winmm.lib;wsock32.lib;dsound.lib;dxguid.lib;delayimp.lib;vfw32.lib;msxml2.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <EnableUAC>false</EnableUAC>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -248,7 +248,7 @@
       <Culture>0x0409</Culture>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>comctl32.lib;winmm.lib;opengl32.lib;glu32.lib;wsock32.lib;dsound.lib;dxguid.lib;delayimp.lib;vfw32.lib;msxml2.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;winmm.lib;wsock32.lib;dsound.lib;dxguid.lib;delayimp.lib;vfw32.lib;msxml2.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(IntDir)$(ProjectName).pdb</ProgramDatabaseFile>
@@ -303,7 +303,7 @@
       <Culture>0x0409</Culture>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>comctl32.lib;winmm.lib;opengl32.lib;glu32.lib;wsock32.lib;dsound.lib;dxguid.lib;delayimp.lib;vfw32.lib;msxml2.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;winmm.lib;wsock32.lib;dsound.lib;dxguid.lib;delayimp.lib;vfw32.lib;msxml2.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(IntDir)$(ProjectName).pdb</ProgramDatabaseFile>
@@ -346,8 +346,6 @@
     <ClInclude Include="..\external\imgui\imconfig.h" />
     <ClInclude Include="..\external\imgui\imgui.h" />
     <ClInclude Include="..\external\imgui\imgui_impl_dx9.h" />
-    <ClInclude Include="..\external\imgui\imgui_impl_opengl3.h" />
-    <ClInclude Include="..\external\imgui\imgui_impl_opengl3_loader.h" />
     <ClInclude Include="..\external\imgui\imgui_impl_vulkan.h" />
     <ClInclude Include="..\external\imgui\imgui_internal.h" />
     <ClInclude Include="..\external\imgui\imstb_rectpack.h" />
@@ -469,12 +467,10 @@
     <ClInclude Include="CGLCG.h" />
     <ClInclude Include="cgMini.h" />
     <ClInclude Include="CSaveLoadWithPreviewDlg.h" />
-    <ClInclude Include="COpenGL.h" />
     <ClInclude Include="CShaderParamDlg.h" />
     <ClInclude Include="CVulkan.h" />
     <ClInclude Include="CWaveOut.h" />
     <ClInclude Include="CXAudio2.h" />
-    <ClInclude Include="gl_core_3_1.h" />
     <ClInclude Include="image_functions.h" />
     <ClInclude Include="InputCustom.h" />
     <ClInclude Include="IS9xDisplayOutput.h" />
@@ -523,7 +519,6 @@
     <ClCompile Include="..\external\imgui\imgui_demo.cpp" />
     <ClCompile Include="..\external\imgui\imgui_draw.cpp" />
     <ClCompile Include="..\external\imgui\imgui_impl_dx9.cpp" />
-    <ClCompile Include="..\external\imgui\imgui_impl_opengl3.cpp" />
     <ClCompile Include="..\external\imgui\imgui_impl_vulkan.cpp" />
     <ClCompile Include="..\external\imgui\imgui_tables.cpp" />
     <ClCompile Include="..\external\imgui\imgui_widgets.cpp" />
@@ -560,6 +555,7 @@
     <ClCompile Include="..\jma\winout.cpp" />
     <ClCompile Include="..\loadzip.cpp" />
     <ClCompile Include="..\memmap.cpp" />
+    <ClCompile Include="..\memshare.cpp" />
     <ClCompile Include="..\memserve.cpp" />
     <ClCompile Include="..\movie.cpp" />
     <ClCompile Include="..\msu1.cpp" />
@@ -638,15 +634,13 @@
     <ClCompile Include="CD3DCG.cpp" />
     <ClCompile Include="CDirect3D.cpp" />
     <ClCompile Include="cgFunctions.cpp" />
-    <ClCompile Include="CGLCG.cpp" />
     <ClCompile Include="CSaveLoadWithPreviewDlg.cpp" />
-    <ClCompile Include="COpenGL.cpp" />
     <ClCompile Include="CShaderParamDlg.cpp" />
     <ClCompile Include="CVulkan.cpp" />
     <ClCompile Include="CWaveOut.cpp" />
+    <ClCompile Include="CWasapi.cpp" />
     <ClCompile Include="CXAudio2.cpp" />
     <ClCompile Include="DumpAtEnd.cpp" />
-    <ClCompile Include="gl_core_3_1.c" />
     <ClCompile Include="image_functions.cpp" />
     <ClCompile Include="InputCustom.cpp" />
     <ClCompile Include="VisualizationWindow.cpp" />

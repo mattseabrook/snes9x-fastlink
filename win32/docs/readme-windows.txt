@@ -163,7 +163,7 @@ If you want to use CG Shaders in Snes9x for windows you need to install the
 CG Toolkit from nvidia's developer zone:
 http://developer.nvidia.com/object/cg_download.html
 
-CG shaders work in both D3D and OpenGL. Various shaders can be found in
+CG shaders work in Direct3D. Various shaders can be found in
 Themaister's Emulator Shader Pack:
 https://github.com/Themaister/Emulator-Shader-Pack
 You can also try the shaders in the libretro common-shaders repository:
@@ -171,13 +171,13 @@ https://github.com/libretro/common-shaders
 
 GLSL Shaders
 --------
-Support for GLSL shaders is available when using OpenGL. A number can be
+Support for GLSL preset files is available when using Vulkan. A number can be
 obtained from the libretro glsl-shaders repository:
 https://github.com/libretro/glsl-shaders
 
 Slang Shaders
 --------
-Slang shaders may also be used with OpenGL. The primary location to get these
+Slang shaders may also be used with Vulkan. The primary location to get these
 is the libretro slang-shaders repository:
 https://github.com/libretro/slang-shaders
 

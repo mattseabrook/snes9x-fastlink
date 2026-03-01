@@ -4,6 +4,11 @@
 namespace Vulkan
 {
 
+namespace
+{
+constexpr uint64_t kLowLatencyWaitNs = 1000000ull; // 1 ms
+}
+
 Swapchain::Swapchain(vk::Device device_, vk::PhysicalDevice physical_device_, vk::Queue queue_, vk::SurfaceKHR surface_, vk::CommandPool command_pool_)
     : surface(surface_),
       command_pool(command_pool_),
@@ -242,8 +247,6 @@ bool Swapchain::create(unsigned int desired_num_swapchain_images, int new_width,
         image.framebuffer = device.createFramebufferUnique(framebuffer_create_info);
     }
 
-    device.waitIdle();
-
     current_swapchain_image = 0;
 
     return true;
@@ -259,16 +262,21 @@ bool Swapchain::begin_frame()
 
     auto &frame = frames[current_frame];
 
-    auto result = device.waitForFences(frame.fence.get(), true, 33333333);
+    auto result = device.waitForFences(frame.fence.get(), true, kLowLatencyWaitNs);
+    if (result == vk::Result::eTimeout)
+    {
+        return false;
+    }
+
     if (result != vk::Result::eSuccess)
     {
-        printf("Timed out waiting for fence.\n");
+        printf("Failed waiting for fence: %s\n", vk::to_string(result).c_str());
         return false;
     }
 
     vk::ResultValue<uint32_t> result_value(vk::Result::eSuccess, 0);
     try {
-        result_value = device.acquireNextImageKHR(swapchain_object.get(), UINT64_MAX, frame.acquire.get());
+        result_value = device.acquireNextImageKHR(swapchain_object.get(), kLowLatencyWaitNs, frame.acquire.get());
     } catch (vk::OutOfDateKHRError &e) {
         result_value.result = vk::Result::eErrorOutOfDateKHR;
     }
@@ -282,7 +290,6 @@ bool Swapchain::begin_frame()
 
     if (result_value.result == vk::Result::eTimeout)
     {
-        printf("Timed out waiting for swapchain.\n");
         return false;
     }
 

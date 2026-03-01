@@ -317,6 +317,7 @@ struct SSettings
 
 	bool	MemoryServe;	/* memserve feature enabled */
 	int     MemServePort;	/* memserve port */
+	bool	MemoryMapServe;	/* memory-mapped stream enabled */
 };
 
 struct SSNESGameFixes

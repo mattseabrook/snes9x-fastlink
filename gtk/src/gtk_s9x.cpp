@@ -312,15 +312,18 @@ static bool S9xIdleFunc()
         return false;
     }
 
-    S9xCheckPointerTimer();
-
-    S9xProcessEvents(true);
-
     if (!S9xDisplayDriverIsReady())
     {
         usleep(100);
         return true;
     }
+
+    S9xCheckPointerTimer();
+
+    // Poll input as late as possible — right before emulation reads it.
+    // This minimizes the gap between reading the USB controller and the
+    // SNES auto-joypad latch at V=228, critical for frame-perfect input.
+    S9xProcessEvents(true);
 
     if (!S9xNetplayPush())
     {
@@ -533,9 +536,13 @@ static void S9xThrottle(int method)
             }
         }
 
-        while (now - frame_clock < Settings.FrameTime)
         {
-            usleep(100);
+            gint64 remaining = Settings.FrameTime - (now - frame_clock);
+            if (remaining > 1000)
+                usleep(remaining - 1000);
+            // Spin-wait the final ~1ms for precision
+            while (g_get_monotonic_time() - frame_clock < Settings.FrameTime)
+                ;
             now = g_get_monotonic_time();
         }
 

@@ -388,15 +388,15 @@ void CShaderParamDlg::get_changed_parameters(HWND hDlg)
 void CShaderParamDlg::save_custom_shader()
 {
     TCHAR save_path[MAX_PATH];
-	int len = lstrlen(GUI.OGLshaderFileName);
-	if (len > 5 && !_tcsncicmp(&GUI.OGLshaderFileName[len - 6], TEXT(".glslp"), 6)) {
+    int len = lstrlen(GUI.VulkanShaderFileName);
+    if (len > 5 && !_tcsncicmp(&GUI.VulkanShaderFileName[len - 6], TEXT(".glslp"), 6)) {
 		_stprintf(save_path, TEXT("%s\\custom_shader_params.glslp"), S9xGetDirectoryT(DEFAULT_DIR));
 	}
 	else {
 		_stprintf(save_path, TEXT("%s\\custom_shader_params.slangp"), S9xGetDirectoryT(DEFAULT_DIR));
 	}
     save_function(_tToChar(save_path));
-    lstrcpy(GUI.OGLshaderFileName, save_path);
+    lstrcpy(GUI.VulkanShaderFileName, save_path);
 }
 
 void CShaderParamDlg::apply_changes(HWND hDlg)

@@ -260,7 +260,6 @@ bool Context::init_vma()
 
 bool Context::create_swapchain(int width, int height)
 {
-    wait_idle();
     swapchain = std::make_unique<Swapchain>(device, physical_device, queue, surface.get(), command_pool.get());
     return swapchain->create(2, width, height);
 }

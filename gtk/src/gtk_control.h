@@ -129,11 +129,11 @@ class JoyDevices
         void set_mode(int mode);
 
         void poll_events();
+        JoyDevice *get_joystick(SDL_JoystickID instance_id);
         std::map<SDL_JoystickID, std::unique_ptr<JoyDevice>>::const_iterator begin() const { return joysticks.begin(); }
         std::map<SDL_JoystickID, std::unique_ptr<JoyDevice>>::const_iterator end() const { return joysticks.end(); }
 
     private:
-        JoyDevice *get_joystick(SDL_JoystickID instance_id);
         std::map<SDL_JoystickID, std::unique_ptr<JoyDevice>> joysticks;
 };
 

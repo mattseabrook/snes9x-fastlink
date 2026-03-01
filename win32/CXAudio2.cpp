@@ -253,8 +253,19 @@ bool CXAudio2::SetupSound()
 
 	DeInitVoices();
 
-	blockCount = 8;
-	UINT32 blockTime = GUI.SoundBufferSize / blockCount;
+	blockCount = GUI.ReduceInputLag ? 4 : 8;
+	UINT32 targetBufferMs = GUI.SoundBufferSize;
+	if (Settings.SoundSync && GUI.ReduceInputLag)
+	{
+		if (targetBufferMs > 32)
+			targetBufferMs = 32;
+		if (targetBufferMs < 16)
+			targetBufferMs = 16;
+	}
+
+	UINT32 blockTime = targetBufferMs / blockCount;
+	if (blockTime < 4)
+		blockTime = 4;
 
 	singleBufferSamples = (Settings.SoundPlaybackRate * blockTime) / 1000;
     singleBufferSamples *= 2;
@@ -334,15 +345,24 @@ void CXAudio2::ProcessSound()
 
     if(Settings.SoundSync && !Settings.TurboMode && !Settings.Mute)
     {
-        // no sound sync when speed is not set to 100%
+		const DWORD syncWaitMs = GUI.ReduceInputLag ? 2u : (DWORD)max(4u, min(50u, (unsigned int)(Settings.FrameTime / 1000 + 4)));
+		const int maxSyncRetries = GUI.ReduceInputLag ? 2 : 4;
+		int syncRetries = 0;
         while((freeBytes >> 1) < availableSamples)
         {
             ResetEvent(GUI.SoundSyncEvent);
-            if(!GUI.AllowSoundSync || WaitForSingleObject(GUI.SoundSyncEvent, 1000) != WAIT_OBJECT_0)
+			if(!GUI.AllowSoundSync || WaitForSingleObject(GUI.SoundSyncEvent, syncWaitMs) != WAIT_OBJECT_0)
             {
                 S9xClearSamples();
                 return;
             }
+
+			if(++syncRetries >= maxSyncRetries)
+			{
+				S9xClearSamples();
+				return;
+			}
+
             freeBytes = GetAvailableBytes();
         }
     }

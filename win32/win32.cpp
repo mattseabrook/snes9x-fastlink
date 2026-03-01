@@ -31,9 +31,207 @@
 
 #include <math.h>
 
+#include <algorithm>
+#include <vector>
+#include <hidsdi.h>
+
 struct SJoyState Joystick [16];
 uint32 joypads [8];
 bool8 do_frame_adjust=false;
+
+static BYTE g_keyboard_state[256] = {};
+static SHORT g_pause_state = 0;
+static BYTE g_raw_keyboard_state[256] = {};
+static ULONGLONG g_raw_keyboard_ticks[256] = {};
+static bool g_raw_input_registered = false;
+static HWND g_raw_input_hwnd = NULL;
+
+typedef DWORD (WINAPI *XInputGetStateProc)(DWORD, void *);
+
+typedef struct _S9X_XINPUT_GAMEPAD {
+	WORD  wButtons;
+	BYTE  bLeftTrigger;
+	BYTE  bRightTrigger;
+	SHORT sThumbLX;
+	SHORT sThumbLY;
+	SHORT sThumbRX;
+	SHORT sThumbRY;
+} S9X_XINPUT_GAMEPAD;
+
+typedef struct _S9X_XINPUT_STATE {
+	DWORD dwPacketNumber;
+	S9X_XINPUT_GAMEPAD Gamepad;
+} S9X_XINPUT_STATE;
+
+static const WORD S9X_XINPUT_GAMEPAD_DPAD_UP        = 0x0001;
+static const WORD S9X_XINPUT_GAMEPAD_DPAD_DOWN      = 0x0002;
+static const WORD S9X_XINPUT_GAMEPAD_DPAD_LEFT      = 0x0004;
+static const WORD S9X_XINPUT_GAMEPAD_DPAD_RIGHT     = 0x0008;
+static const WORD S9X_XINPUT_GAMEPAD_START          = 0x0010;
+static const WORD S9X_XINPUT_GAMEPAD_BACK           = 0x0020;
+static const WORD S9X_XINPUT_GAMEPAD_LEFT_THUMB     = 0x0040;
+static const WORD S9X_XINPUT_GAMEPAD_RIGHT_THUMB    = 0x0080;
+static const WORD S9X_XINPUT_GAMEPAD_LEFT_SHOULDER  = 0x0100;
+static const WORD S9X_XINPUT_GAMEPAD_RIGHT_SHOULDER = 0x0200;
+static const WORD S9X_XINPUT_GAMEPAD_A              = 0x1000;
+static const WORD S9X_XINPUT_GAMEPAD_B              = 0x2000;
+static const WORD S9X_XINPUT_GAMEPAD_X              = 0x4000;
+static const WORD S9X_XINPUT_GAMEPAD_Y              = 0x8000;
+
+static XInputGetStateProc g_xinput_get_state = NULL;
+
+static bool S9xReadXInputPad(int index, SJoyState &js);
+
+struct S9xRawHidPad
+{
+	HANDLE device = NULL;
+	std::vector<BYTE> preparsed;
+	HIDP_CAPS caps = {};
+	SJoyState state = {};
+	ULONGLONG last_tick = 0;
+	bool active = false;
+};
+
+static std::vector<S9xRawHidPad> g_raw_hid_pads;
+
+static bool S9xInitRawHidPad(HANDLE device, S9xRawHidPad &pad);
+static void S9xUpdateRawHidPad(S9xRawHidPad &pad, const RAWHID &hid);
+static bool S9xGetUsageInfo(const S9xRawHidPad &pad, USAGE usage, LONG &logicalMin, LONG &logicalMax, USHORT &bitSize);
+static void S9xUpdateRawHidDPad(SJoyState &js, ULONG hat);
+
+static WORD S9xResolveRawVirtualKey(const RAWKEYBOARD &rk)
+{
+	WORD vkey = rk.VKey;
+	if (vkey == 255)
+		return 0;
+
+	if (vkey == VK_SHIFT)
+		vkey = (WORD)MapVirtualKey(rk.MakeCode, MAPVK_VSC_TO_VK_EX);
+	else if (vkey == VK_CONTROL)
+		vkey = (rk.Flags & RI_KEY_E0) ? VK_RCONTROL : VK_LCONTROL;
+	else if (vkey == VK_MENU)
+		vkey = (rk.Flags & RI_KEY_E0) ? VK_RMENU : VK_LMENU;
+
+	return vkey;
+}
+
+bool S9xWinRegisterRawInput(HWND hWnd)
+{
+	RAWINPUTDEVICE devices[4] = {};
+
+	devices[0].usUsagePage = 0x01;
+	devices[0].usUsage = 0x06;
+	devices[0].dwFlags = RIDEV_INPUTSINK;
+	devices[0].hwndTarget = hWnd;
+
+	devices[1].usUsagePage = 0x01;
+	devices[1].usUsage = 0x02;
+	devices[1].dwFlags = RIDEV_INPUTSINK;
+	devices[1].hwndTarget = hWnd;
+
+	devices[2].usUsagePage = 0x01;
+	devices[2].usUsage = 0x04;
+	devices[2].dwFlags = RIDEV_INPUTSINK | RIDEV_DEVNOTIFY;
+	devices[2].hwndTarget = hWnd;
+
+	devices[3].usUsagePage = 0x01;
+	devices[3].usUsage = 0x05;
+	devices[3].dwFlags = RIDEV_INPUTSINK | RIDEV_DEVNOTIFY;
+	devices[3].hwndTarget = hWnd;
+
+	if (!RegisterRawInputDevices(devices, 4, sizeof(RAWINPUTDEVICE)))
+	{
+		g_raw_input_registered = false;
+		g_raw_input_hwnd = NULL;
+		return false;
+	}
+
+	g_raw_input_registered = true;
+	g_raw_input_hwnd = hWnd;
+	return true;
+}
+
+void S9xWinUnregisterRawInput()
+{
+	if (!g_raw_input_registered)
+		return;
+
+	RAWINPUTDEVICE devices[4] = {};
+	devices[0].usUsagePage = 0x01;
+	devices[0].usUsage = 0x06;
+	devices[0].dwFlags = RIDEV_REMOVE;
+
+	devices[1].usUsagePage = 0x01;
+	devices[1].usUsage = 0x02;
+	devices[1].dwFlags = RIDEV_REMOVE;
+
+	devices[2].usUsagePage = 0x01;
+	devices[2].usUsage = 0x04;
+	devices[2].dwFlags = RIDEV_REMOVE;
+
+	devices[3].usUsagePage = 0x01;
+	devices[3].usUsage = 0x05;
+	devices[3].dwFlags = RIDEV_REMOVE;
+
+	RegisterRawInputDevices(devices, 4, sizeof(RAWINPUTDEVICE));
+
+	g_raw_input_registered = false;
+	g_raw_input_hwnd = NULL;
+	memset(g_raw_keyboard_state, 0, sizeof(g_raw_keyboard_state));
+	memset(g_raw_keyboard_ticks, 0, sizeof(g_raw_keyboard_ticks));
+	g_raw_hid_pads.clear();
+}
+
+void S9xWinHandleRawInput(HRAWINPUT hRawInput)
+{
+	if (!hRawInput)
+		return;
+
+	UINT data_size = 0;
+	if (GetRawInputData(hRawInput, RID_INPUT, NULL, &data_size, sizeof(RAWINPUTHEADER)) != 0 || data_size == 0)
+		return;
+
+	std::vector<BYTE> raw_buffer(data_size);
+	if (GetRawInputData(hRawInput, RID_INPUT, raw_buffer.data(), &data_size, sizeof(RAWINPUTHEADER)) != data_size)
+		return;
+
+	RAWINPUT *raw = reinterpret_cast<RAWINPUT *>(raw_buffer.data());
+	if (raw->header.dwType == RIM_TYPEKEYBOARD)
+	{
+		const RAWKEYBOARD &rk = raw->data.keyboard;
+		WORD vkey = S9xResolveRawVirtualKey(rk);
+		if (vkey == 0 || vkey >= 256)
+			return;
+
+		bool is_key_up = (rk.Flags & RI_KEY_BREAK) != 0;
+		g_raw_keyboard_state[vkey] = is_key_up ? 0 : 0x80;
+		g_raw_keyboard_ticks[vkey] = GetTickCount64();
+		return;
+	}
+
+	if (raw->header.dwType != RIM_TYPEHID)
+		return;
+
+	HANDLE device = raw->header.hDevice;
+	if (!device)
+		return;
+
+	for (auto &pad : g_raw_hid_pads)
+	{
+		if (pad.device == device)
+		{
+			S9xUpdateRawHidPad(pad, raw->data.hid);
+			return;
+		}
+	}
+
+	S9xRawHidPad pad;
+	if (!S9xInitRawHidPad(device, pad))
+		return;
+
+	S9xUpdateRawHidPad(pad, raw->data.hid);
+	g_raw_hid_pads.push_back(pad);
+}
 
 // avi variables
 static uint8* avi_buffer = NULL;
@@ -78,6 +276,310 @@ int __fastcall Normalize (int cur, int min, int max)
     Result -= 100;
 
     return (Result);
+}
+
+static void S9xWinInitXInput()
+{
+	if (g_xinput_get_state)
+		return;
+
+	const TCHAR *xinput_dlls[] = {
+		TEXT("xinput1_4.dll"),
+		TEXT("xinput1_3.dll"),
+		TEXT("xinput9_1_0.dll")
+	};
+
+	for (const TCHAR *dll : xinput_dlls)
+	{
+		HMODULE module = LoadLibrary(dll);
+		if (!module)
+			continue;
+
+		g_xinput_get_state = (XInputGetStateProc)GetProcAddress(module, "XInputGetState");
+		if (g_xinput_get_state)
+		{
+			return;
+		}
+
+		FreeLibrary(module);
+	}
+}
+
+static void S9xClearJoyState(SJoyState &js)
+{
+	js.Left = js.Right = js.Up = js.Down = false;
+	js.PovLeft = js.PovRight = js.PovUp = js.PovDown = false;
+	js.PovDnLeft = js.PovDnRight = js.PovUpLeft = js.PovUpRight = false;
+	js.RUp = js.RDown = js.UUp = js.UDown = js.VUp = js.VDown = false;
+	js.ZUp = js.ZDown = false;
+	memset(js.Button, 0, sizeof(js.Button));
+}
+
+static int S9xNormalizeSignedAxis(short value)
+{
+	int normalized = (value * 100) / 32767;
+	return std::max(-100, std::min(100, normalized));
+}
+
+static bool S9xReadXInputPad(int index, SJoyState &js)
+{
+	if (!g_xinput_get_state)
+		return false;
+
+	S9X_XINPUT_STATE state{};
+	if (g_xinput_get_state(index, &state) != 0)
+		return false;
+
+	js.Attached = true;
+	S9xClearJoyState(js);
+
+	const int deadzone = S9X_JOY_NEUTRAL;
+	const int lx = S9xNormalizeSignedAxis(state.Gamepad.sThumbLX);
+	const int ly = S9xNormalizeSignedAxis(state.Gamepad.sThumbLY);
+
+	js.Left = lx < -deadzone;
+	js.Right = lx > deadzone;
+	js.Up = ly > deadzone;
+	js.Down = ly < -deadzone;
+
+	const bool dpad_up = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_DPAD_UP) != 0;
+	const bool dpad_down = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_DPAD_DOWN) != 0;
+	const bool dpad_left = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_DPAD_LEFT) != 0;
+	const bool dpad_right = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_DPAD_RIGHT) != 0;
+
+	js.PovUp = dpad_up && !dpad_left && !dpad_right;
+	js.PovDown = dpad_down && !dpad_left && !dpad_right;
+	js.PovLeft = dpad_left && !dpad_up && !dpad_down;
+	js.PovRight = dpad_right && !dpad_up && !dpad_down;
+	js.PovUpLeft = dpad_up && dpad_left;
+	js.PovUpRight = dpad_up && dpad_right;
+	js.PovDnLeft = dpad_down && dpad_left;
+	js.PovDnRight = dpad_down && dpad_right;
+
+	js.ZUp = state.Gamepad.bLeftTrigger > 30;
+	js.ZDown = state.Gamepad.bRightTrigger > 30;
+
+	js.Button[0] = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_A) != 0;
+	js.Button[1] = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_B) != 0;
+	js.Button[2] = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_X) != 0;
+	js.Button[3] = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_Y) != 0;
+	js.Button[4] = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_LEFT_SHOULDER) != 0;
+	js.Button[5] = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_RIGHT_SHOULDER) != 0;
+	js.Button[6] = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_BACK) != 0;
+	js.Button[7] = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_START) != 0;
+	js.Button[8] = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_LEFT_THUMB) != 0;
+	js.Button[9] = (state.Gamepad.wButtons & S9X_XINPUT_GAMEPAD_RIGHT_THUMB) != 0;
+
+	return true;
+}
+
+static bool S9xUpdateXInputPad(int index)
+{
+	if (index < 0 || index >= 16)
+		return false;
+
+	SJoyState state = {};
+	if (!S9xReadXInputPad(index, state))
+		return false;
+
+	Joystick[index] = state;
+	return true;
+}
+
+static bool S9xInitRawHidPad(HANDLE device, S9xRawHidPad &pad)
+{
+	RID_DEVICE_INFO info = {};
+	info.cbSize = sizeof(info);
+	UINT info_size = sizeof(info);
+	if (GetRawInputDeviceInfo(device, RIDI_DEVICEINFO, &info, &info_size) == (UINT)-1)
+		return false;
+
+	if (info.dwType != RIM_TYPEHID)
+		return false;
+
+	if (info.hid.usUsagePage != 0x01)
+		return false;
+
+	if (info.hid.usUsage != 0x04 && info.hid.usUsage != 0x05)
+		return false;
+
+	UINT ppd_size = 0;
+	if (GetRawInputDeviceInfo(device, RIDI_PREPARSEDDATA, NULL, &ppd_size) == (UINT)-1 || ppd_size == 0)
+		return false;
+
+	pad.preparsed.resize(ppd_size);
+	if (GetRawInputDeviceInfo(device, RIDI_PREPARSEDDATA, pad.preparsed.data(), &ppd_size) == (UINT)-1)
+		return false;
+
+	PHIDP_PREPARSED_DATA ppd = reinterpret_cast<PHIDP_PREPARSED_DATA>(pad.preparsed.data());
+	if (HidP_GetCaps(ppd, &pad.caps) != HIDP_STATUS_SUCCESS)
+		return false;
+
+	pad.device = device;
+	pad.active = true;
+	pad.state = {};
+	return true;
+}
+
+static bool S9xGetUsageInfo(const S9xRawHidPad &pad, USAGE usage, LONG &logicalMin, LONG &logicalMax, USHORT &bitSize)
+{
+	USHORT value_caps_len = pad.caps.NumberInputValueCaps;
+	if (value_caps_len == 0)
+		return false;
+
+	std::vector<HIDP_VALUE_CAPS> value_caps(value_caps_len);
+	PHIDP_PREPARSED_DATA ppd = reinterpret_cast<PHIDP_PREPARSED_DATA>(const_cast<BYTE *>(pad.preparsed.data()));
+	if (HidP_GetValueCaps(HidP_Input, value_caps.data(), &value_caps_len, ppd) != HIDP_STATUS_SUCCESS)
+		return false;
+
+	for (USHORT i = 0; i < value_caps_len; i++)
+	{
+		if (value_caps[i].UsagePage != 0x01)
+			continue;
+
+		USAGE min_usage = value_caps[i].IsRange ? value_caps[i].Range.UsageMin : value_caps[i].NotRange.Usage;
+		USAGE max_usage = value_caps[i].IsRange ? value_caps[i].Range.UsageMax : value_caps[i].NotRange.Usage;
+		if (usage < min_usage || usage > max_usage)
+			continue;
+
+		logicalMin = value_caps[i].LogicalMin;
+		logicalMax = value_caps[i].LogicalMax;
+		bitSize = value_caps[i].BitSize;
+		if (logicalMax <= logicalMin)
+			return false;
+		return true;
+	}
+
+	return false;
+}
+
+static void S9xUpdateRawHidDPad(SJoyState &js, ULONG hat)
+{
+	js.PovUp = js.PovDown = js.PovLeft = js.PovRight = false;
+	js.PovUpLeft = js.PovUpRight = js.PovDnLeft = js.PovDnRight = false;
+
+	switch (hat)
+	{
+		case 0: js.PovUp = true; break;
+		case 1: js.PovUpRight = true; break;
+		case 2: js.PovRight = true; break;
+		case 3: js.PovDnRight = true; break;
+		case 4: js.PovDown = true; break;
+		case 5: js.PovDnLeft = true; break;
+		case 6: js.PovLeft = true; break;
+		case 7: js.PovUpLeft = true; break;
+		default: break;
+	}
+
+	if (js.PovUp || js.PovUpLeft || js.PovUpRight)
+		js.Up = true;
+	if (js.PovDown || js.PovDnLeft || js.PovDnRight)
+		js.Down = true;
+	if (js.PovLeft || js.PovUpLeft || js.PovDnLeft)
+		js.Left = true;
+	if (js.PovRight || js.PovUpRight || js.PovDnRight)
+		js.Right = true;
+}
+
+static void S9xUpdateRawHidPad(S9xRawHidPad &pad, const RAWHID &hid)
+{
+	PHIDP_PREPARSED_DATA ppd = reinterpret_cast<PHIDP_PREPARSED_DATA>(pad.preparsed.data());
+	const ULONG report_len = hid.dwSizeHid;
+	if (report_len == 0 || hid.dwCount == 0)
+		return;
+
+	const BYTE *report = hid.bRawData + (hid.dwCount - 1) * report_len;
+
+	SJoyState js = {};
+	js.Attached = true;
+
+	ULONG max_usages = HidP_MaxUsageListLength(HidP_Input, 0x09, ppd);
+	if (max_usages > 0)
+	{
+		std::vector<USAGE> usages(max_usages);
+		ULONG usage_len = max_usages;
+		if (HidP_GetUsages(HidP_Input, 0x09, 0, usages.data(), &usage_len, ppd, (PCHAR)report, report_len) == HIDP_STATUS_SUCCESS)
+		{
+			for (ULONG i = 0; i < usage_len; i++)
+			{
+				int btn_index = usages[i] - 1; // Direct input usage is 1-based usually
+				if (btn_index >= 0 && btn_index < 32)
+					js.Button[btn_index] = true;
+			}
+		}
+	}
+
+	LONG logical_min = 0;
+	LONG logical_max = 0;
+	USHORT bit_size = 0;
+	ULONG value = 0;
+
+	if (S9xGetUsageInfo(pad, 0x30, logical_min, logical_max, bit_size) &&
+		HidP_GetUsageValue(HidP_Input, 0x01, 0, 0x30, &value, ppd, (PCHAR)report, report_len) == HIDP_STATUS_SUCCESS)
+	{
+		LONG signed_value = value;
+		if (logical_min < 0 && (value & (1UL << (bit_size - 1))))
+			signed_value = value | (~0UL << bit_size);
+
+		int norm = ((int)(signed_value - logical_min) * 200 / (logical_max - logical_min)) - 100;
+		js.Left = norm < -S9X_JOY_NEUTRAL;
+		js.Right = norm > S9X_JOY_NEUTRAL;
+	}
+
+	if (S9xGetUsageInfo(pad, 0x31, logical_min, logical_max, bit_size) &&
+		HidP_GetUsageValue(HidP_Input, 0x01, 0, 0x31, &value, ppd, (PCHAR)report, report_len) == HIDP_STATUS_SUCCESS)
+	{
+		LONG signed_value = value;
+		if (logical_min < 0 && (value & (1UL << (bit_size - 1))))
+			signed_value = value | (~0UL << bit_size);
+
+		int norm = ((int)(signed_value - logical_min) * 200 / (logical_max - logical_min)) - 100;
+		js.Up = norm < -S9X_JOY_NEUTRAL;
+		js.Down = norm > S9X_JOY_NEUTRAL;
+	}
+
+	if (S9xGetUsageInfo(pad, 0x39, logical_min, logical_max, bit_size) &&
+		HidP_GetUsageValue(HidP_Input, 0x01, 0, 0x39, &value, ppd, (PCHAR)report, report_len) == HIDP_STATUS_SUCCESS)
+	{
+		LONG signed_value = value;
+		if (logical_min < 0 && (value & (1UL << (bit_size - 1))))
+			signed_value = value | (~0UL << bit_size);
+
+		if (signed_value >= logical_min && signed_value <= logical_max)
+		{
+			ULONG hat = signed_value - logical_min;
+			S9xUpdateRawHidDPad(js, hat);
+		}
+	}
+
+	pad.state = js;
+	pad.last_tick = GetTickCount64();
+	pad.active = true;
+}
+
+void S9xWinUpdateKeyState()
+{
+	if (g_raw_input_registered)
+	{
+		ULONGLONG frame_tick = GetTickCount64();
+		for (int i = 0; i < 256; i++)
+		{
+			if (g_raw_keyboard_ticks[i] != 0 && g_raw_keyboard_ticks[i] <= frame_tick)
+				g_keyboard_state[i] = g_raw_keyboard_state[i];
+		}
+	}
+	else
+	{
+		if (!GetKeyboardState(g_keyboard_state))
+			memset(g_keyboard_state, 0, sizeof(g_keyboard_state));
+		else
+		{
+			for (int i = 0; i < 256; i++)
+				g_keyboard_state[i] &= 0x80;
+		}
+	}
+
+	g_pause_state = (g_keyboard_state[VK_PAUSE] & 0x80) ? 1 : 0;
 }
 
 void S9xTextMode( void)
@@ -489,8 +991,19 @@ bool S9xGetState (WORD KeyIdent)
 	if(KeyIdent == 0 || KeyIdent == VK_ESCAPE) // if it's the 'disabled' key, it's never pressed
 		return true;
 
-	if(!GUI.BackgroundInput && GUI.hWnd != GetForegroundWindow())
-		return true;
+	if(!GUI.BackgroundInput)
+	{
+		static DWORD lastFocusTick = 0;
+		static bool isForeground = true;
+		DWORD tick = GetTickCount();
+		if (tick != lastFocusTick)
+		{
+			lastFocusTick = tick;
+			isForeground = (GUI.hWnd == GetForegroundWindow());
+		}
+		if(!isForeground)
+			return true;
+	}
 
     if (KeyIdent & 0x8000) // if it's a joystick 'key':
     {
@@ -530,172 +1043,45 @@ bool S9xGetState (WORD KeyIdent)
 	// the pause key is special, need this to catch all presses of it
 	if(KeyIdent == VK_PAUSE)
 	{
-		if(GetAsyncKeyState(VK_PAUSE)) // not &'ing this with 0x8000 is intentional and necessary
+		if(g_pause_state) // not &'ing this with 0x8000 is intentional and necessary
 			return false;
 	}
 
-    return ((GetKeyState (KeyIdent) & 0x80) == 0);
-}
+	if (KeyIdent < 256)
+		return ((g_keyboard_state[KeyIdent] & 0x80) == 0);
 
-void CheckAxis (int val, int min, int max, bool &first, bool &second)
-{
-    if (Normalize (val, min, max) < -S9X_JOY_NEUTRAL)
-    {
-        second = false;
-        first = true;
-    }
-    else
-        first = false;
-
-    if (Normalize (val, min, max) > S9X_JOY_NEUTRAL)
-    {
-        first = false;
-        second = true;
-    }
-    else
-        second = false;
+	return ((GetAsyncKeyState(KeyIdent) & 0x8000) == 0);
 }
 
 void S9xWinScanJoypads ()
 {
     uint8 PadState[2];
-    JOYINFOEX jie;
 
-    for (int C = 0; C != 16; C ++)
-    {
-        if (Joystick[C].Attached)
-        {
-            jie.dwSize = sizeof (jie);
-            jie.dwFlags = JOY_RETURNALL;
+	for (int c = 0; c != 16; c++)
+	{
+		if (c < 4 && S9xUpdateXInputPad(c))
+			continue;
 
-            if (joyGetPosEx (JOYSTICKID1+C, &jie) != JOYERR_NOERROR)
-            {
-                Joystick[C].Attached = false;
-                continue;
-            }
+		S9xClearJoyState(Joystick[c]);
+		Joystick[c].Attached = false;
+	}
 
-            CheckAxis (jie.dwXpos,
-                       Joystick[C].Caps.wXmin, Joystick[C].Caps.wXmax,
-                       Joystick[C].Left, Joystick[C].Right);
-            CheckAxis (jie.dwYpos,
-                       Joystick[C].Caps.wYmin, Joystick[C].Caps.wYmax,
-                       Joystick[C].Up, Joystick[C].Down);
-            CheckAxis (jie.dwZpos,
-                       Joystick[C].Caps.wZmin, Joystick[C].Caps.wZmax,
-                       Joystick[C].ZUp, Joystick[C].ZDown);
-            CheckAxis (jie.dwRpos,
-                       Joystick[C].Caps.wRmin, Joystick[C].Caps.wRmax,
-                       Joystick[C].RUp, Joystick[C].RDown);
-            CheckAxis (jie.dwUpos,
-                       Joystick[C].Caps.wUmin, Joystick[C].Caps.wUmax,
-                       Joystick[C].UUp, Joystick[C].UDown);
-            CheckAxis (jie.dwVpos,
-                       Joystick[C].Caps.wVmin, Joystick[C].Caps.wVmax,
-                       Joystick[C].VUp, Joystick[C].VDown);
+	int slot = 0;
+	for (size_t i = 0; i < g_raw_hid_pads.size(); i++)
+	{
+		if (!g_raw_hid_pads[i].active)
+			continue;
 
-            switch (jie.dwPOV)
-            {
-                case JOY_POVBACKWARD:
-                    Joystick[C].PovDown = true;
-                    Joystick[C].PovUp = false;
-                    Joystick[C].PovLeft = false;
-                    Joystick[C].PovRight = false;
-					Joystick[C].PovDnLeft = false;
-					Joystick[C].PovDnRight = false;
-					Joystick[C].PovUpLeft = false;
-					Joystick[C].PovUpRight = false;
-					 break;
-				case 4500:
-					Joystick[C].PovDown = false;
-					Joystick[C].PovUp = false;
-					Joystick[C].PovLeft = false;
-					Joystick[C].PovRight = false;
-					Joystick[C].PovDnLeft = false;
-					Joystick[C].PovDnRight = false;
-					Joystick[C].PovUpLeft = false;
-					Joystick[C].PovUpRight = true;
-					break;
-				case 13500:
-					Joystick[C].PovDown = false;
-					Joystick[C].PovUp = false;
-					Joystick[C].PovLeft = false;
-					Joystick[C].PovRight = false;
-					Joystick[C].PovDnLeft = false;
-					Joystick[C].PovDnRight = true;
-					Joystick[C].PovUpLeft = false;
-					Joystick[C].PovUpRight = false;
-					break;
-				case 22500:
-					Joystick[C].PovDown = false;
-					Joystick[C].PovUp = false;
-					Joystick[C].PovLeft = false;
-					Joystick[C].PovRight = false;
-					Joystick[C].PovDnLeft = true;
-					Joystick[C].PovDnRight = false;
-					Joystick[C].PovUpLeft = false;
-					Joystick[C].PovUpRight = false;
-					break;
-				case 31500:
-					Joystick[C].PovDown = false;
-					Joystick[C].PovUp = false;
-					Joystick[C].PovLeft = false;
-					Joystick[C].PovRight = false;
-					Joystick[C].PovDnLeft = false;
-					Joystick[C].PovDnRight = false;
-					Joystick[C].PovUpLeft = true;
-					Joystick[C].PovUpRight = false;
-					break;
+		while (slot < 16 && Joystick[slot].Attached)
+			slot++;
 
+		if (slot >= 16)
+			break;
 
-                case JOY_POVFORWARD:
-                    Joystick[C].PovDown = false;
-                    Joystick[C].PovUp = true;
-                    Joystick[C].PovLeft = false;
-                    Joystick[C].PovRight = false;
-					Joystick[C].PovDnLeft = false;
-					Joystick[C].PovDnRight = false;
-					Joystick[C].PovUpLeft = false;
-					Joystick[C].PovUpRight = false;
-                    break;
-
-                case JOY_POVLEFT:
-                    Joystick[C].PovDown = false;
-                    Joystick[C].PovUp = false;
-                    Joystick[C].PovLeft = true;
-                    Joystick[C].PovRight = false;
-					Joystick[C].PovDnLeft = false;
-					Joystick[C].PovDnRight = false;
-					Joystick[C].PovUpLeft = false;
-					Joystick[C].PovUpRight = false;
-                    break;
-
-                case JOY_POVRIGHT:
-                    Joystick[C].PovDown = false;
-                    Joystick[C].PovUp = false;
-                    Joystick[C].PovLeft = false;
-                    Joystick[C].PovRight = true;
-					Joystick[C].PovDnLeft = false;
-					Joystick[C].PovDnRight = false;
-					Joystick[C].PovUpLeft = false;
-					Joystick[C].PovUpRight = false;
-                    break;
-
-                default:
-                    Joystick[C].PovDown = false;
-                    Joystick[C].PovUp = false;
-                    Joystick[C].PovLeft = false;
-                    Joystick[C].PovRight = false;
-					Joystick[C].PovDnLeft = false;
-					Joystick[C].PovDnRight = false;
-					Joystick[C].PovUpLeft = false;
-					Joystick[C].PovUpRight = false;
-                    break;
-            }
-
-            for (int B = 0; B < 32; B ++)
-                Joystick[C].Button[B] = (jie.dwButtons & (1 << B)) != 0;
-        }
-    }
+		Joystick[slot] = g_raw_hid_pads[i].state;
+		Joystick[slot].Attached = true;
+		slot++;
+	}
 
     for (int J = 0; J < 8; J++)
     {
@@ -803,9 +1189,17 @@ void S9xWinScanJoypads ()
 
 void S9xDetectJoypads()
 {
+	S9xWinInitXInput();
+	g_raw_hid_pads.clear();
+
     for (int C = 0; C != 16; C ++)
-        Joystick[C].Attached = joyGetDevCaps (JOYSTICKID1+C, &Joystick[C].Caps,
-                                              sizeof( JOYCAPS)) == JOYERR_NOERROR;
+	{
+		if (C < 4 && S9xUpdateXInputPad(C))
+			continue;
+
+		S9xClearJoyState(Joystick[C]);
+		Joystick[C].Attached = false;
+	}
 }
 
 void InitSnes9x( void)
@@ -847,6 +1241,7 @@ void InitSnes9x( void)
 }
 void DeinitS9x()
 {
+	S9xWinUnregisterRawInput();
 	DeleteCriticalSection(&GUI.SoundCritSect);
     CloseHandle(GUI.SoundSyncEvent);
 	CoUninitialize();

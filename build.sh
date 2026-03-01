@@ -517,19 +517,20 @@ compile_objects() {
   export CL_CMD="$CL"
   export CFLAGS_STR="${cflags[*]}"
 
-  # Compile with error handling - continue on individual failures but track
-  local fail_count=0
-  while IFS=' ' read -r src obj; do
-    if ! "$CL" $CFLAGS_STR /c "$src" /Fo"$obj" >/dev/null 2>&1; then
-      ((fail_count++)) || true
-    fi
-  done < "$BUILD_DIR/compile_manifest.txt" &
-
-  # Use parallel make-style approach
-  cat "$BUILD_DIR/compile_manifest.txt" \
+  # Compile each source once in parallel. Keep per-file logs for failures and
+  # print diagnostics immediately so broken objects are easy to identify.
+  if ! cat "$BUILD_DIR/compile_manifest.txt" \
     | xargs -P "$JOBS" -n 2 sh -c '
-        $CL_CMD $CFLAGS_STR /c "$0" /Fo"$1" >/dev/null 2>&1 || echo "FAILED: $0" >&2
-      ' || true
+        log="$1.log"
+        if ! $CL_CMD $CFLAGS_STR /c "$0" /Fo"$1" >"$log" 2>&1; then
+          echo "FAILED: $0" >&2
+          cat "$log" >&2
+          exit 1
+        fi
+        rm -f "$log"
+      '; then
+    die "Compilation failed"
+  fi
 
   # Check we got some obj files
   local obj_count
@@ -553,7 +554,7 @@ link_exe() {
     "/libpath:$LIB_UM"
     "kernel32.lib" "user32.lib" "gdi32.lib" "comdlg32.lib" "advapi32.lib"
     "shell32.lib" "ole32.lib" "oleaut32.lib" "winmm.lib" "shlwapi.lib"
-    "d3d9.lib" "dxguid.lib" "dsound.lib" "comctl32.lib" "opengl32.lib"
+    "d3d9.lib" "dxguid.lib" "dsound.lib" "comctl32.lib" "opengl32.lib" "hid.lib"
     "ws2_32.lib" "wsock32.lib" "vfw32.lib" "msxml2.lib" "delayimp.lib"
     "$ZLIB_DIR/lib/zlib.lib"
     "$LIBPNG_DIR/lib/libpng.lib"

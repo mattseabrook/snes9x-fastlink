@@ -48,6 +48,7 @@ private:
 
 	static const D3DVERTEXELEMENT9 vertexElems[4];
 	LPDIRECT3DVERTEXDECLARATION9 vertexDeclaration;
+	LPDIRECT3DQUERY9          latencyQuery;
 
 	LPDIRECT3DTEXTURE9      rubyLUT[MAX_SHADER_TEXTURES];
 	CGcontext cgContext;
@@ -73,6 +74,7 @@ private:
 	void checkForCgError(const char *situation);
 	bool SetShaderCG(const TCHAR *file);
 	void Clear();
+	void WaitForLowLagSync();
 
 public:
 	CDirect3D();

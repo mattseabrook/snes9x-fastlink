@@ -108,8 +108,7 @@ enum RenderFilter{
 
 enum OutputMethod {
 	DIRECT3D = 0,
-	OPENGL,
-	VULKAN
+	VULKAN = 2
 };
 
 struct dMode
@@ -174,9 +173,7 @@ struct sGUI {
 	bool shaderEnabled;
     bool DWMSync;
 	TCHAR D3DshaderFileName[MAX_PATH];
-	TCHAR OGLshaderFileName[MAX_PATH];
-
-	bool OGLdisablePBOs;
+	TCHAR VulkanShaderFileName[MAX_PATH];
 	int OSDSize;
 
     bool IgnoreNextMouseMove;
@@ -445,8 +442,13 @@ enum
 	WIN_FMODEX_DEFAULT_DRIVER,
 	WIN_FMODEX_ASIO_DRIVER,
 	WIN_FMODEX_OPENAL_DRIVER,
-    WIN_WAVEOUT_DRIVER
+		WIN_WAVEOUT_DRIVER,
+		WIN_WASAPI_SOUND_DRIVER
 };
+void S9xWinUpdateKeyState();
+bool S9xWinRegisterRawInput(HWND hWnd);
+void S9xWinHandleRawInput(HRAWINPUT hRawInput);
+void S9xWinUnregisterRawInput();
 
 #define S9X_REG_KEY_BASE MY_REG_KEY
 #define S9X_REG_KEY_VERSION REG_KEY_VER

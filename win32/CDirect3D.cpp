@@ -26,6 +26,15 @@
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 
+namespace {
+
+static UINT EffectiveBackBufferCount()
+{
+	return 1;
+}
+
+}
+
 const D3DVERTEXELEMENT9 CDirect3D::vertexElems[4] = {
 		{0, 0,  D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
 		{0, 12, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
@@ -60,6 +69,7 @@ CDirect3D::CDirect3D()
 	cgAvailable = false;
 	cgShader = NULL;
 	vertexDeclaration = NULL;
+	latencyQuery = NULL;
 }
 
 /* CDirect3D::~CDirect3D()
@@ -92,9 +102,10 @@ bool CDirect3D::Initialize(HWND hWnd)
 	memset(&dPresentParams, 0, sizeof(dPresentParams));
 	dPresentParams.hDeviceWindow = hWnd;
     dPresentParams.Windowed = true;
-	dPresentParams.BackBufferCount = GUI.DoubleBuffered?2:1;
+	dPresentParams.BackBufferCount = EffectiveBackBufferCount();
     dPresentParams.SwapEffect = D3DSWAPEFFECT_DISCARD;
 	dPresentParams.BackBufferFormat = D3DFMT_UNKNOWN;
+	dPresentParams.PresentationInterval = GUI.Vsync ? D3DPRESENT_INTERVAL_ONE : D3DPRESENT_INTERVAL_IMMEDIATE;
 
 	HRESULT hr = pD3D->CreateDevice(D3DADAPTER_DEFAULT,
                       D3DDEVTYPE_HAL,
@@ -189,6 +200,11 @@ void CDirect3D::DeInitialize()
 	if(vertexDeclaration) {
 		vertexDeclaration->Release();
 		vertexDeclaration = NULL;
+	}
+
+	if(latencyQuery) {
+		latencyQuery->Release();
+		latencyQuery = NULL;
 	}
 
 	if( pDevice ) {
@@ -346,8 +362,6 @@ void CDirect3D::Render(SSurface Src)
 
 	SetFiltering();
 
-	pDevice->SetVertexDeclaration(vertexDeclaration);
-
 	pDevice->BeginScene();
 	pDevice->DrawPrimitive(D3DPT_TRIANGLESTRIP,0,2);
 	if (S9xImGuiRunning())
@@ -358,24 +372,10 @@ void CDirect3D::Render(SSurface Src)
 	}
 
 	pDevice->EndScene();
-
-	WinThrottleFramerate();
 	pDevice->Present(NULL, NULL, NULL, NULL);
 
-	if (GUI.ReduceInputLag)
-	{
-		IDirect3DSurface9 *surface;
-		RECT r = { 0, 0, 2, 2 };
-
-		if (pDevice->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &surface) == D3D_OK)
-		{
-			if (surface->LockRect(&lr, &r, D3DLOCK_READONLY) == D3D_OK)
-			{
-				surface->UnlockRect();
-			}
-			surface->Release();
-		}
-	}
+	if (!GUI.Vsync && !GUI.DWMSync)
+		WaitForLowLagSync();
 
     return;
 }
@@ -578,17 +578,17 @@ bool CDirect3D::ResetDevice()
 	//zero or unknown values result in the current window size/display settings
 	dPresentParams.BackBufferWidth = 0;
 	dPresentParams.BackBufferHeight = 0;
-	dPresentParams.BackBufferCount = GUI.DoubleBuffered?2:1;
+	dPresentParams.BackBufferCount = EffectiveBackBufferCount();
 	dPresentParams.BackBufferFormat = D3DFMT_UNKNOWN;
 	dPresentParams.FullScreen_RefreshRateInHz = 0;
 	dPresentParams.Windowed = true;
 	dPresentParams.PresentationInterval = GUI.Vsync?D3DPRESENT_INTERVAL_ONE:D3DPRESENT_INTERVAL_IMMEDIATE;
-	dPresentParams.Flags = D3DPRESENTFLAG_LOCKABLE_BACKBUFFER;
+	dPresentParams.Flags = 0;
 
 	if(fullscreen) {
 		dPresentParams.BackBufferWidth = GUI.FullscreenMode.width;
 		dPresentParams.BackBufferHeight = GUI.FullscreenMode.height;
-		dPresentParams.BackBufferCount = GUI.DoubleBuffered?2:1;
+		dPresentParams.BackBufferCount = EffectiveBackBufferCount();
 		dPresentParams.Windowed = false;
 		if(GUI.FullscreenMode.depth == 32)
 			dPresentParams.BackBufferFormat = D3DFMT_X8R8G8B8;
@@ -615,6 +615,12 @@ bool CDirect3D::ResetDevice()
 	//recreate the surface
 	CreateDrawSurface();
 
+	if(latencyQuery) {
+		latencyQuery->Release();
+		latencyQuery = NULL;
+	}
+	pDevice->CreateQuery(D3DQUERYTYPE_EVENT, &latencyQuery);
+
 	SetViewport();
 
 	if (S9xImGuiRunning())
@@ -623,6 +629,20 @@ bool CDirect3D::ResetDevice()
 	}
 
 	return true;
+}
+
+void CDirect3D::WaitForLowLagSync()
+{
+	if (!latencyQuery)
+		return;
+
+	if (FAILED(latencyQuery->Issue(D3DISSUE_END)))
+		return;
+
+	while (latencyQuery->GetData(NULL, 0, D3DGETDATA_FLUSH) == S_FALSE)
+	{
+		SwitchToThread();
+	}
 }
 
 /*  CDirect3D::SetSnes9xColorFormat

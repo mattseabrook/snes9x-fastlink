@@ -153,7 +153,7 @@ int Snes9xConfig::load_defaults()
     sync_to_vblank = true;
     use_shaders = false;
     shader_filename.clear();
-    reduce_input_lag = false;
+    reduce_input_lag = true;
 
     /* Snes9x Variables */
     Settings.MouseMaster = true;

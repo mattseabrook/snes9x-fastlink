@@ -27,7 +27,7 @@ class CWaveOut : public IS9xSoundOutput
     UINT32 sumBufferSize;
     UINT32 singleBufferSamples;
     UINT32 singleBufferBytes;
-    const UINT32 blockCount = 8;
+    const UINT32 blockCount = 4;
     UINT32 writeOffset;
     UINT32 partialOffset;
     std::vector<WAVEHDR> waveHeaders;

@@ -10,6 +10,7 @@
 #include "wsnes9x.h"
 #include "CXAudio2.h"
 #include "CWaveOut.h"
+#include "CWasapi.h"
 #include "win32_sound.h"
 #include "win32_display.h"
 
@@ -18,6 +19,7 @@
 // available sound output methods
 CXAudio2 S9xXAudio2;
 CWaveOut S9xWaveOut;
+CWasapi S9xWasapi;
 
 // Interface used to access the sound output
 IS9xSoundOutput *S9xSoundOutput = &S9xXAudio2;
@@ -76,12 +78,15 @@ bool8 S9xOpenSoundDevice ()
 		case WIN_WAVEOUT_DRIVER:
 			S9xSoundOutput = &S9xWaveOut;
 			break;
+		case WIN_WASAPI_SOUND_DRIVER:
+			S9xSoundOutput = &S9xWasapi;
+			break;
 		case WIN_XAUDIO2_SOUND_DRIVER:
 			S9xSoundOutput = &S9xXAudio2;
 			break;
 		default:	// we default to WaveOut
-			GUI.SoundDriver = WIN_WAVEOUT_DRIVER;
-			S9xSoundOutput = &S9xWaveOut;
+			GUI.SoundDriver = WIN_WASAPI_SOUND_DRIVER;
+			S9xSoundOutput = &S9xWasapi;
 	}
 	if(!S9xSoundOutput->InitSoundOutput())
 		return false;

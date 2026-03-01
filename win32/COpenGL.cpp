@@ -381,8 +381,6 @@ void COpenGL::Render(SSurface Src)
 		glDrawArrays(GL_QUADS, 0, 4);
     }
 
-	glFlush();
-
 	if (S9xImGuiRunning())
 	{
 		ImGui_ImplOpenGL3_NewFrame();
@@ -393,10 +391,8 @@ void COpenGL::Render(SSurface Src)
 		}
 	}
 
-	WinThrottleFramerate();
-
 	SwapBuffers(hDC);
-	if (GUI.ReduceInputLag)
+	if (GUI.ReduceInputLag && !GUI.Vsync && !GUI.DWMSync)
 		glFinish();
 }
 
