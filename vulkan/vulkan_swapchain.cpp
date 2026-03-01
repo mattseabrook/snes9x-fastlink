@@ -172,7 +172,7 @@ bool Swapchain::create(unsigned int desired_num_swapchain_images, int new_width,
     auto tearing_present_mode = vk::PresentModeKHR::eFifo;
     if (std::find(present_modes.begin(), present_modes.end(), vk::PresentModeKHR::eImmediate) != present_modes.end())
         tearing_present_mode = vk::PresentModeKHR::eImmediate;
-    if (std::find(present_modes.begin(), present_modes.end(), vk::PresentModeKHR::eMailbox) != present_modes.end())
+    else if (std::find(present_modes.begin(), present_modes.end(), vk::PresentModeKHR::eMailbox) != present_modes.end())
         tearing_present_mode = vk::PresentModeKHR::eMailbox;
 
     auto swapchain_create_info = vk::SwapchainCreateInfoKHR{}

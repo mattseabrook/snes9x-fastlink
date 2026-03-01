@@ -40,7 +40,6 @@
 #define IDB_HIDDENFOLDER                149
 #define IDD_MULTICART                   150
 #define IDD_DIALOG_SHADER_PARAMS        155
-#define IDD_DIALOG_XAUDIO2_INIT_ERROR   159
 #define IDI_ICON2                       160
 #define IDI_ICON3                       161
 #define IDI_ICON4                       162

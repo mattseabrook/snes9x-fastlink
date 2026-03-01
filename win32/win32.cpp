@@ -561,12 +561,7 @@ void S9xWinUpdateKeyState()
 {
 	if (g_raw_input_registered)
 	{
-		ULONGLONG frame_tick = GetTickCount64();
-		for (int i = 0; i < 256; i++)
-		{
-			if (g_raw_keyboard_ticks[i] != 0 && g_raw_keyboard_ticks[i] <= frame_tick)
-				g_keyboard_state[i] = g_raw_keyboard_state[i];
-		}
+		memcpy(g_keyboard_state, g_raw_keyboard_state, sizeof(g_keyboard_state));
 	}
 	else
 	{
@@ -1055,6 +1050,8 @@ bool S9xGetState (WORD KeyIdent)
 
 void S9xWinScanJoypads ()
 {
+	S9xWinUpdateKeyState();
+
     uint8 PadState[2];
 
 	for (int c = 0; c != 16; c++)

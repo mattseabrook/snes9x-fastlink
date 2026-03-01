@@ -218,6 +218,8 @@ void CWasapi::ProcessSound()
     if (!initDone || !audioClient || !renderClient)
         return;
 
+    const DWORD syncWaitMs = GUI.ReduceInputLag ? 0u : 1u;
+
     EnterCriticalSection(&GUI.SoundCritSect);
 
     UINT32 padding = 0;
@@ -232,7 +234,7 @@ void CWasapi::ProcessSound()
     if (availableFrames == 0)
     {
         if (Settings.SoundSync && !Settings.TurboMode && !Settings.Mute)
-            WaitForSingleObject(sampleEvent, 1);
+            WaitForSingleObject(sampleEvent, syncWaitMs);
 
         LeaveCriticalSection(&GUI.SoundCritSect);
         return;
@@ -280,7 +282,7 @@ void CWasapi::ProcessSound()
 
     if (Settings.SoundSync && !Settings.TurboMode && !Settings.Mute && availableSamples > writableSamples)
     {
-        WaitForSingleObject(sampleEvent, 1);
+        WaitForSingleObject(sampleEvent, syncWaitMs);
     }
 
     LeaveCriticalSection(&GUI.SoundCritSect);
