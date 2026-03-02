@@ -38,6 +38,7 @@
 struct SJoyState Joystick [16];
 uint32 joypads [8];
 bool8 do_frame_adjust=false;
+static bool g_prev_joy_buttons[16][32] = {};
 
 static BYTE g_keyboard_state[256] = {};
 static SHORT g_pause_state = 0;
@@ -90,6 +91,9 @@ struct S9xRawHidPad
 	SJoyState state = {};
 	ULONGLONG last_tick = 0;
 	bool active = false;
+	// Unique DataIndex for each button — avoids duplicate-usage HID descriptor bugs
+	// (e.g. RetroPort SNES adapter reports duplicate Usage IDs, but DataIndex is always unique)
+	std::vector<USHORT> buttonDataIndices;
 };
 
 static std::vector<S9xRawHidPad> g_raw_hid_pads;
@@ -215,6 +219,27 @@ void S9xWinHandleRawInput(HRAWINPUT hRawInput)
 	HANDLE device = raw->header.hDevice;
 	if (!device)
 		return;
+
+	// Filter out XInput-compatible devices so the same controller doesn't
+	// appear in both the XInput slots AND the Raw HID slots.
+	if (g_xinput_get_state)
+	{
+		UINT name_size = 0;
+		GetRawInputDeviceInfoA(device, RIDI_DEVICENAME, NULL, &name_size);
+		if (name_size > 0)
+		{
+			std::vector<char> name_buf(name_size + 1, '\0');
+			if (GetRawInputDeviceInfoA(device, RIDI_DEVICENAME, name_buf.data(), &name_size) != (UINT)-1)
+			{
+				// Microsoft marks XInput-capable devices with "IG_" in
+				// the device interface path.
+				for (char *p = name_buf.data(); *p; ++p)
+					*p = (char)toupper((unsigned char)*p);
+				if (strstr(name_buf.data(), "IG_") != NULL)
+					return; // skip — already handled by XInput
+			}
+		}
+	}
 
 	for (auto &pad : g_raw_hid_pads)
 	{
@@ -418,6 +443,34 @@ static bool S9xInitRawHidPad(HANDLE device, S9xRawHidPad &pad)
 	pad.device = device;
 	pad.active = true;
 	pad.state = {};
+
+	// Enumerate button caps to build a unique DataIndex → sequential button map.
+	// HidP_GetUsages() returns Usage IDs which may be duplicated in quirky
+	// descriptors (e.g. RetroPort SNES). DataIndex is always unique per button.
+	USHORT num_btn_caps = pad.caps.NumberInputButtonCaps;
+	if (num_btn_caps > 0)
+	{
+		std::vector<HIDP_BUTTON_CAPS> btn_caps(num_btn_caps);
+		if (HidP_GetButtonCaps(HidP_Input, btn_caps.data(), &num_btn_caps, ppd) == HIDP_STATUS_SUCCESS)
+		{
+			for (USHORT i = 0; i < num_btn_caps; i++)
+			{
+				if (btn_caps[i].UsagePage != 0x09)
+					continue;
+				if (btn_caps[i].IsRange)
+				{
+					for (USHORT d = btn_caps[i].Range.DataIndexMin; d <= btn_caps[i].Range.DataIndexMax; d++)
+						pad.buttonDataIndices.push_back(d);
+				}
+				else
+				{
+					pad.buttonDataIndices.push_back(btn_caps[i].NotRange.DataIndex);
+				}
+			}
+			std::sort(pad.buttonDataIndices.begin(), pad.buttonDataIndices.end());
+		}
+	}
+
 	return true;
 }
 
@@ -493,18 +546,26 @@ static void S9xUpdateRawHidPad(S9xRawHidPad &pad, const RAWHID &hid)
 	SJoyState js = {};
 	js.Attached = true;
 
-	ULONG max_usages = HidP_MaxUsageListLength(HidP_Input, 0x09, ppd);
-	if (max_usages > 0)
+	// Use HidP_GetData (DataIndex-based) instead of HidP_GetUsages (Usage-based).
+	// DataIndex is always unique per button, even when the HID descriptor has
+	// duplicate Usage IDs (e.g. RetroPort SNES adapter quirk).
+	ULONG max_data = HidP_MaxDataListLength(HidP_Input, ppd);
+	if (max_data > 0 && !pad.buttonDataIndices.empty())
 	{
-		std::vector<USAGE> usages(max_usages);
-		ULONG usage_len = max_usages;
-		if (HidP_GetUsages(HidP_Input, 0x09, 0, usages.data(), &usage_len, ppd, (PCHAR)report, report_len) == HIDP_STATUS_SUCCESS)
+		std::vector<HIDP_DATA> data_list(max_data);
+		ULONG data_len = max_data;
+		if (HidP_GetData(HidP_Input, data_list.data(), &data_len, ppd, (PCHAR)report, report_len) == HIDP_STATUS_SUCCESS)
 		{
-			for (ULONG i = 0; i < usage_len; i++)
+			for (ULONG i = 0; i < data_len; i++)
 			{
-				int btn_index = usages[i] - 1;
-				if (btn_index >= 0 && btn_index < 32)
-					js.Button[btn_index] = true;
+				// Check if this DataIndex corresponds to a button
+				auto it = std::lower_bound(pad.buttonDataIndices.begin(), pad.buttonDataIndices.end(), data_list[i].DataIndex);
+				if (it != pad.buttonDataIndices.end() && *it == data_list[i].DataIndex)
+				{
+					int btn_index = (int)(it - pad.buttonDataIndices.begin());
+					if (btn_index >= 0 && btn_index < 32 && data_list[i].On)
+						js.Button[btn_index] = true;
+				}
 			}
 		}
 	}
@@ -1055,6 +1116,32 @@ void S9xWinScanJoypads ()
 {
 	S9xWinUpdateKeyState();
 
+	auto log_joy_button_press = [](int joy_index, int button_index)
+	{
+		char logbuf[128];
+		_snprintf(logbuf, sizeof(logbuf), "[SNES9X-RUNTIME] J%d Button%d pressed\n", joy_index, button_index);
+		logbuf[sizeof(logbuf) - 1] = '\0';
+		OutputDebugStringA(logbuf);
+
+		char module_path[MAX_PATH] = {};
+		if (GetModuleFileNameA(NULL, module_path, MAX_PATH) > 0)
+		{
+			char *slash = strrchr(module_path, '\\');
+			if (slash)
+				slash[1] = '\0';
+			strncat(module_path, "snes9x_runtime.log", MAX_PATH - strlen(module_path) - 1);
+
+			HANDLE h = CreateFileA(module_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+				NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+			if (h != INVALID_HANDLE_VALUE)
+			{
+				DWORD written = 0;
+				WriteFile(h, logbuf, (DWORD)strlen(logbuf), &written, NULL);
+				CloseHandle(h);
+			}
+		}
+	};
+
     uint8 PadState[2];
 
 	for (int c = 0; c != 16; c++)
@@ -1081,6 +1168,17 @@ void S9xWinScanJoypads ()
 		Joystick[slot] = g_raw_hid_pads[i].state;
 		Joystick[slot].Attached = true;
 		slot++;
+	}
+
+	for (int j = 0; j < 16; j++)
+	{
+		for (int b = 0; b < 32; b++)
+		{
+			bool pressed = Joystick[j].Attached && Joystick[j].Button[b];
+			if (pressed && !g_prev_joy_buttons[j][b])
+				log_joy_button_press(j, b);
+			g_prev_joy_buttons[j][b] = pressed;
+		}
 	}
 
     for (int J = 0; J < 8; J++)

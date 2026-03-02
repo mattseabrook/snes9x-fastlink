@@ -200,11 +200,6 @@ bool CWasapi::InitClient(bool exclusive)
 bool CWasapi::SetupSound(void)
 {
     ReleaseClient();
-
-    if (InitClient(true))
-        return true;
-
-    ReleaseClient();
     return InitClient(false);
 }
 

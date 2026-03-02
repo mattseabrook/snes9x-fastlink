@@ -7925,7 +7925,7 @@ switch(msg)
 			GetAsyncKeyState(i);
 
 		for( C = 0; C != 16; C ++)
-	        JoystickF[C].Attached = joyGetDevCaps( JOYSTICKID1+C, &JoystickF[C].Caps, sizeof( JOYCAPS)) == JOYERR_NOERROR;
+	        JoystickF[C].Attached = false;
 
 		for(i=1;i<6;i++)
 		{
