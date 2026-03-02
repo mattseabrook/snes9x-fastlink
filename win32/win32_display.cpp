@@ -22,6 +22,9 @@
 #include "../filter/2xsai.h"
 #include "../apu/apu.h"
 
+#include <atomic>
+#include <mutex>
+
 // available display output methods
 CDirect3D Direct3D;
 CVulkan VulkanDriver;
@@ -40,6 +43,21 @@ DWMISCOMPOSITIONENABLEDPROC DwmIsCompositionEnabledProc = NULL;
 // Interface used to access the display output
 IS9xDisplayOutput *S9xDisplayOutput=&Direct3D;
 
+struct S9xFrameHandoffState
+{
+	std::mutex mutex;
+	std::vector<BYTE> latestPixels;
+	std::vector<BYTE> renderPixels;
+	int latestWidth = 0;
+	int latestHeight = 0;
+	int latestPitch = 0;
+	uint64_t latestSerial = 0;
+	uint64_t renderedSerial = 0;
+	bool enabled = false;
+};
+
+static S9xFrameHandoffState g_frame_handoff;
+
 #ifndef max
 #define max(a,b)            (((a) > (b)) ? (a) : (b))
 #endif
@@ -49,6 +67,84 @@ IS9xDisplayOutput *S9xDisplayOutput=&Direct3D;
 
 bool8 S9xDeinitUpdate (int, int);
 void DoAVIVideoFrame();
+
+void WinEnableFrameHandoff(bool enabled)
+{
+	std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
+	g_frame_handoff.enabled = enabled;
+	if (!enabled)
+	{
+		g_frame_handoff.latestPixels.clear();
+		g_frame_handoff.renderPixels.clear();
+		g_frame_handoff.latestWidth = 0;
+		g_frame_handoff.latestHeight = 0;
+		g_frame_handoff.latestPitch = 0;
+		g_frame_handoff.latestSerial = 0;
+		g_frame_handoff.renderedSerial = 0;
+	}
+}
+
+void WinClearFrameHandoff()
+{
+	std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
+	g_frame_handoff.latestPixels.clear();
+	g_frame_handoff.renderPixels.clear();
+	g_frame_handoff.latestWidth = 0;
+	g_frame_handoff.latestHeight = 0;
+	g_frame_handoff.latestPitch = 0;
+	g_frame_handoff.latestSerial = 0;
+	g_frame_handoff.renderedSerial = 0;
+}
+
+static void WinPublishFrame(const BYTE *surface, int width, int height, int pitch)
+{
+	if (!surface || width <= 0 || height <= 0 || pitch <= 0)
+		return;
+
+	std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
+	if (!g_frame_handoff.enabled)
+		return;
+
+	const size_t copySize = static_cast<size_t>(height) * static_cast<size_t>(pitch);
+	if (g_frame_handoff.latestPixels.size() != copySize)
+		g_frame_handoff.latestPixels.resize(copySize);
+
+	memcpy(g_frame_handoff.latestPixels.data(), surface, copySize);
+	g_frame_handoff.latestWidth = width;
+	g_frame_handoff.latestHeight = height;
+	g_frame_handoff.latestPitch = pitch;
+	g_frame_handoff.latestSerial++;
+}
+
+bool WinConsumeFrameAndRender()
+{
+	int width = 0;
+	int height = 0;
+	int pitch = 0;
+
+	{
+		std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
+		if (!g_frame_handoff.enabled || g_frame_handoff.latestSerial == g_frame_handoff.renderedSerial)
+			return false;
+
+		width = g_frame_handoff.latestWidth;
+		height = g_frame_handoff.latestHeight;
+		pitch = g_frame_handoff.latestPitch;
+		g_frame_handoff.renderPixels = g_frame_handoff.latestPixels;
+		g_frame_handoff.renderedSerial = g_frame_handoff.latestSerial;
+	}
+
+	if (width <= 0 || height <= 0 || pitch <= 0 || g_frame_handoff.renderPixels.empty())
+		return false;
+
+	Src.Width = width;
+	Src.Height = height;
+	Src.Pitch = pitch;
+	Src.Surface = g_frame_handoff.renderPixels.data();
+
+	WinRefreshDisplay();
+	return true;
+}
 
 // cut off both top and bottom if overscan is disabled and game outputs extended height,
 // center image if overscan is enabled and game outputs regular height
@@ -301,7 +397,10 @@ bool8 S9xDeinitUpdate (int Width, int Height)
         LastHeight = Height;
     }
 
-	WinRefreshDisplay();
+	WinPublishFrame((BYTE*)GFX.Screen, Width, Height, GFX.Pitch);
+
+	if (!g_frame_handoff.enabled)
+		WinRefreshDisplay();
 
     return (true);
 }

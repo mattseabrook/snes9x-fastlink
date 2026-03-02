@@ -21,6 +21,7 @@
 #include <Shobjidl.h>
 #include <dbt.h>
 #include <thread>
+#include <atomic>
 
 #include "wsnes9x.h"
 #include "win32_sound.h"
@@ -3257,39 +3258,31 @@ int WINAPI WinMain(
 	S9xUnmapAllControls();
 	S9xSetupDefaultKeymap();
 
-	std::thread MemoryServeThread;
-	bool isMemServeRunning = false;
-	bool isMemShareRunning = false;
+	WinEnableFrameHandoff(true);
+	std::atomic<bool> emuWorkerRunning(true);
 
-	DWORD lastTime = timeGetTime();
-	MSG msg = {};
-
-	for (;;) [[likely]]
+	std::thread emuWorker([&]()
 	{
-		EnsureInputDisplayUpdated();
+		std::thread MemoryServeThread;
+		bool isMemServeRunning = false;
+		bool isMemShareRunning = false;
+		DWORD lastTime = timeGetTime();
 
-		while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+		while (emuWorkerRunning.load(std::memory_order_relaxed))
 		{
-			if (msg.message == WM_QUIT)
-				goto loop_exit;
-
-			if (!DispatchGuiMessage(msg))
-				goto loop_exit;
-		}
-
-		const bool isPaused = IsEmulationBlockedForInput();
-		S9xSetSoundMute(GUI.Mute || (isPaused && (!Settings.FrameAdvance || GUI.FAMute)));
-
-		if (isPaused) [[unlikely]]
-		{
-			WaitMessage();
-			continue;
-		}
+			if (IsEmulationBlockedForInput())
+			{
+				Sleep(1);
+				continue;
+			}
 
 #ifdef NETPLAY_SUPPORT
-		if (!Settings.NetPlay || !NetPlay.PendingWait4Sync ||
-			WaitForSingleObject(GUI.ClientSemaphore, 100) != WAIT_TIMEOUT)
-		{
+			if (Settings.NetPlay && NetPlay.PendingWait4Sync &&
+				WaitForSingleObject(GUI.ClientSemaphore, 100) == WAIT_TIMEOUT)
+			{
+				continue;
+			}
+
 			if (NetPlay.PendingWait4Sync)
 			{
 				NetPlay.PendingWait4Sync = FALSE;
@@ -3306,7 +3299,7 @@ int WINAPI WinMain(
 					const uint8 *source =
 						(address < 0x20000) ? Memory.RAM + address :
 						(address < 0x30000) ? Memory.SRAM + address - 0x20000 :
-											  Memory.FillRAM + address - 0x30000;
+										  Memory.FillRAM + address - 0x30000;
 					memcpy(Cheat.CWatchRAM + address, source, w.size);
 				}
 			}
@@ -3378,40 +3371,71 @@ int WINAPI WinMain(
 
 			GUI.FrameCount++;
 
-			if (GUI.CursorTimer && --GUI.CursorTimer == 0) [[unlikely]]
+			if (CPU.Flags & DEBUG_MODE_FLAG) [[unlikely]]
 			{
-				if (GUI.ControllerOption != SNES_SUPERSCOPE &&
-					GUI.ControllerOption != SNES_JUSTIFIER &&
-					GUI.ControllerOption != SNES_JUSTIFIER_2 &&
-					GUI.ControllerOption != SNES_MACSRIFLE)
-					SetCursor(nullptr);
+				Settings.Paused = true;
+				Settings.FrameAdvance = false;
+				CPU.Flags &= ~DEBUG_MODE_FLAG;
 			}
-
-#ifdef NETPLAY_SUPPORT
 		}
-#endif
 
-		if (CPU.Flags & DEBUG_MODE_FLAG) [[unlikely]]
+		if (isMemServeRunning)
 		{
-			Settings.Paused = true;
-			Settings.FrameAdvance = false;
-			CPU.Flags &= ~DEBUG_MODE_FLAG;
+			MemServeStop();
+			if (MemoryServeThread.joinable())
+				MemoryServeThread.join();
 		}
+
+		if (isMemShareRunning)
+			MemShareStop();
+	});
+
+	MSG msg = {};
+
+	for (;;) [[likely]]
+	{
+		EnsureInputDisplayUpdated();
+
+		while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+		{
+			if (msg.message == WM_QUIT)
+				goto loop_exit;
+
+			if (!DispatchGuiMessage(msg))
+				goto loop_exit;
+		}
+
+		const bool isPaused = IsEmulationBlockedForInput();
+		S9xSetSoundMute(GUI.Mute || (isPaused && (!Settings.FrameAdvance || GUI.FAMute)));
+		const bool rendered = WinConsumeFrameAndRender();
+
+		if (rendered && GUI.CursorTimer && --GUI.CursorTimer == 0) [[unlikely]]
+		{
+			if (GUI.ControllerOption != SNES_SUPERSCOPE &&
+				GUI.ControllerOption != SNES_JUSTIFIER &&
+				GUI.ControllerOption != SNES_JUSTIFIER_2 &&
+				GUI.ControllerOption != SNES_MACSRIFLE)
+				SetCursor(nullptr);
+		}
+
+		if (isPaused) [[unlikely]]
+		{
+			WaitMessage();
+			continue;
+		}
+
+		if (!rendered)
+			Sleep(1);
 	}
 
 loop_exit:
-
-	if (isMemServeRunning)
-	{
-		MemServeStop();
-		if (MemoryServeThread.joinable())
-			MemoryServeThread.join();
-	}
-
-	if (isMemShareRunning)
-		MemShareStop();
+	emuWorkerRunning.store(false, std::memory_order_relaxed);
+	if (emuWorker.joinable())
+		emuWorker.join();
 
 	VisualizationShutdown();
+	WinClearFrameHandoff();
+	WinEnableFrameHandoff(false);
 	Settings.StopEmulation = TRUE;
 
 	CloseSoundDevice();

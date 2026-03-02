@@ -19,6 +19,9 @@
 #define IS_SLASH(x) ((x) == TEXT('\\') || (x) == TEXT('/'))
 
 void WinRefreshDisplay(void);
+void WinEnableFrameHandoff(bool enabled);
+void WinClearFrameHandoff();
+bool WinConsumeFrameAndRender();
 void S9xSetWinPixelFormat ();
 void SaveMainWinPos();
 void RestoreMainWinPos();
