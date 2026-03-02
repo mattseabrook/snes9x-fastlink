@@ -1,0 +1,8 @@
+A -> gets mapped to button 0 (XINPUT_A)
+B -> gets mapped to button 1 (XINPUT_B)
+X -> gets mapped to button 2 (XINPUT_X)
+Y -> gets mapped to button 3 (XINPUT_Y)
+L -> button 4
+R -> button 5
+Back -> button 6
+Start -> button 7
