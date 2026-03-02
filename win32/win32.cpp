@@ -502,7 +502,7 @@ static void S9xUpdateRawHidPad(S9xRawHidPad &pad, const RAWHID &hid)
 		{
 			for (ULONG i = 0; i < usage_len; i++)
 			{
-				int btn_index = usages[i] - 1; // Direct input usage is 1-based usually
+				int btn_index = usages[i] - 1;
 				if (btn_index >= 0 && btn_index < 32)
 					js.Button[btn_index] = true;
 			}
@@ -514,29 +514,32 @@ static void S9xUpdateRawHidPad(S9xRawHidPad &pad, const RAWHID &hid)
 	USHORT bit_size = 0;
 	ULONG value = 0;
 
-	if (S9xGetUsageInfo(pad, 0x30, logical_min, logical_max, bit_size) &&
-		HidP_GetUsageValue(HidP_Input, 0x01, 0, 0x30, &value, ppd, (PCHAR)report, report_len) == HIDP_STATUS_SUCCESS)
+	auto read_axis = [&](USAGE usage, bool &negative, bool &positive)
 	{
+		if (!S9xGetUsageInfo(pad, usage, logical_min, logical_max, bit_size))
+			return;
+
+		if (logical_max <= logical_min)
+			return;
+
+		if (HidP_GetUsageValue(HidP_Input, 0x01, 0, usage, &value, ppd, (PCHAR)report, report_len) != HIDP_STATUS_SUCCESS)
+			return;
+
 		LONG signed_value = value;
-		if (logical_min < 0 && (value & (1UL << (bit_size - 1))))
+		if (logical_min < 0 && bit_size > 0 && (value & (1UL << (bit_size - 1))))
 			signed_value = value | (~0UL << bit_size);
 
 		int norm = ((int)(signed_value - logical_min) * 200 / (logical_max - logical_min)) - 100;
-		js.Left = norm < -S9X_JOY_NEUTRAL;
-		js.Right = norm > S9X_JOY_NEUTRAL;
-	}
+		negative = norm < -S9X_JOY_NEUTRAL;
+		positive = norm > S9X_JOY_NEUTRAL;
+	};
 
-	if (S9xGetUsageInfo(pad, 0x31, logical_min, logical_max, bit_size) &&
-		HidP_GetUsageValue(HidP_Input, 0x01, 0, 0x31, &value, ppd, (PCHAR)report, report_len) == HIDP_STATUS_SUCCESS)
-	{
-		LONG signed_value = value;
-		if (logical_min < 0 && (value & (1UL << (bit_size - 1))))
-			signed_value = value | (~0UL << bit_size);
-
-		int norm = ((int)(signed_value - logical_min) * 200 / (logical_max - logical_min)) - 100;
-		js.Up = norm < -S9X_JOY_NEUTRAL;
-		js.Down = norm > S9X_JOY_NEUTRAL;
-	}
+	read_axis(0x30, js.Left, js.Right);
+	read_axis(0x31, js.Up, js.Down);
+	read_axis(0x32, js.ZUp, js.ZDown);
+	read_axis(0x33, js.RUp, js.RDown);
+	read_axis(0x34, js.UUp, js.UDown);
+	read_axis(0x35, js.VUp, js.VDown);
 
 	if (S9xGetUsageInfo(pad, 0x39, logical_min, logical_max, bit_size) &&
 		HidP_GetUsageValue(HidP_Input, 0x01, 0, 0x39, &value, ppd, (PCHAR)report, report_len) == HIDP_STATUS_SUCCESS)

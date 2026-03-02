@@ -26,6 +26,7 @@ static double last_volume = 1.0;
 static std::thread sound_worker_thread;
 static std::atomic<bool> sound_worker_running = false;
 static HANDLE sound_worker_event = NULL;
+static std::atomic<uint32_t> sound_pending_jobs = 0;
 
 static void StopSoundWorker()
 {
@@ -63,7 +64,15 @@ static bool StartSoundWorker()
 			if (!sound_worker_running)
 				break;
 
-			S9xSoundOutput->ProcessSound();
+			uint32_t jobs = sound_pending_jobs.exchange(0, std::memory_order_acq_rel);
+			if (jobs == 0)
+				jobs = 1;
+
+			if (jobs > 8)
+				jobs = 8;
+
+			for (uint32_t i = 0; i < jobs; i++)
+				S9xSoundOutput->ProcessSound();
 
 			if (S9xGetSampleCount() > 0)
 				S9xSoundOutput->ProcessSound();
@@ -99,6 +108,7 @@ bool ReInitSound()
 	Settings.SoundInputRate = CLAMP(Settings.SoundInputRate,31700, 32300);
 	Settings.SoundPlaybackRate = CLAMP(Settings.SoundPlaybackRate,8000, 48000);
 	Settings.SoundSync = false;
+	sound_pending_jobs.store(0, std::memory_order_relaxed);
 	S9xSetSoundMute(GUI.Mute);
 	StopSoundWorker();
 	if(S9xSoundOutput)
@@ -155,13 +165,19 @@ void S9xSoundCallback(void *data)
 	}
 
 	if (sound_worker_event)
+	{
+		sound_pending_jobs.fetch_add(1, std::memory_order_release);
 		SetEvent(sound_worker_event);
+	}
 }
 
 void S9xFinalizeSamples(void)
 {
     if (sound_worker_event)
+    {
+        sound_pending_jobs.fetch_add(1, std::memory_order_release);
         SetEvent(sound_worker_event);
+    }
 }
 
 /*  GetAvailableSoundDevices
