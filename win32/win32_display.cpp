@@ -46,17 +46,33 @@ IS9xDisplayOutput *S9xDisplayOutput=&Direct3D;
 struct S9xFrameHandoffState
 {
 	std::mutex mutex;
-	std::vector<BYTE> latestPixels;
-	std::vector<BYTE> renderPixels;
-	int latestWidth = 0;
-	int latestHeight = 0;
-	int latestPitch = 0;
+	std::vector<BYTE> framePixels[2];
+	int frameWidth[2] = {0, 0};
+	int frameHeight[2] = {0, 0};
+	int framePitch[2] = {0, 0};
+	int latestIndex = -1;
+	int renderIndex = -1;
+	HANDLE frameReadyEvent = NULL;
 	uint64_t latestSerial = 0;
 	uint64_t renderedSerial = 0;
 	bool enabled = false;
 };
 
 static S9xFrameHandoffState g_frame_handoff;
+static BYTE *g_src_base_surface = NULL;
+
+struct S9xLatencyTraceState
+{
+	std::atomic<LONGLONG> inputSampleQpc{0};
+	std::atomic<LONGLONG> emuStartQpc{0};
+	std::atomic<LONGLONG> emuEndQpc{0};
+	std::atomic<LONGLONG> framePublishQpc{0};
+	std::atomic<uint32_t> presentCounter{0};
+	LARGE_INTEGER qpcFreq = {};
+	std::mutex logMutex;
+};
+
+static S9xLatencyTraceState g_latency_trace;
 
 #ifndef max
 #define max(a,b)            (((a) > (b)) ? (a) : (b))
@@ -68,32 +84,161 @@ static S9xFrameHandoffState g_frame_handoff;
 bool8 S9xDeinitUpdate (int, int);
 void DoAVIVideoFrame();
 
+static LONGLONG WinLatencyNowQpc()
+{
+	LARGE_INTEGER now = {};
+	QueryPerformanceCounter(&now);
+	return now.QuadPart;
+}
+
+static double WinLatencyQpcToMs(LONGLONG delta)
+{
+	if (g_latency_trace.qpcFreq.QuadPart <= 0)
+		QueryPerformanceFrequency(&g_latency_trace.qpcFreq);
+
+	if (g_latency_trace.qpcFreq.QuadPart <= 0)
+		return 0.0;
+
+	return (double)delta * 1000.0 / (double)g_latency_trace.qpcFreq.QuadPart;
+}
+
+static void WinLatencyLogLine(const char *line)
+{
+	OutputDebugStringA(line);
+
+	char module_path[MAX_PATH] = {};
+	if (GetModuleFileNameA(NULL, module_path, MAX_PATH) <= 0)
+		return;
+
+	char *slash = strrchr(module_path, '\\');
+	if (!slash)
+		return;
+	slash[1] = '\0';
+	strncat(module_path, "snes9x_latency.log", MAX_PATH - strlen(module_path) - 1);
+
+	std::lock_guard<std::mutex> lock(g_latency_trace.logMutex);
+	HANDLE h = CreateFileA(module_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+		NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (h == INVALID_HANDLE_VALUE)
+		return;
+
+	DWORD written = 0;
+	WriteFile(h, line, (DWORD)strlen(line), &written, NULL);
+	CloseHandle(h);
+}
+
+static void WinLatencyMarkFramePublished()
+{
+	g_latency_trace.framePublishQpc.store(WinLatencyNowQpc(), std::memory_order_relaxed);
+}
+
+void WinLatencyMarkInputSample()
+{
+	g_latency_trace.inputSampleQpc.store(WinLatencyNowQpc(), std::memory_order_relaxed);
+}
+
+void WinLatencyMarkEmuStepStart()
+{
+	g_latency_trace.emuStartQpc.store(WinLatencyNowQpc(), std::memory_order_relaxed);
+}
+
+void WinLatencyMarkEmuStepEnd()
+{
+	g_latency_trace.emuEndQpc.store(WinLatencyNowQpc(), std::memory_order_relaxed);
+}
+
+void WinLatencyMarkPresentSubmit()
+{
+	const LONGLONG presentQpc = WinLatencyNowQpc();
+	const LONGLONG inputQpc = g_latency_trace.inputSampleQpc.load(std::memory_order_relaxed);
+	const LONGLONG emuStartQpc = g_latency_trace.emuStartQpc.load(std::memory_order_relaxed);
+	const LONGLONG emuEndQpc = g_latency_trace.emuEndQpc.load(std::memory_order_relaxed);
+	const LONGLONG publishQpc = g_latency_trace.framePublishQpc.load(std::memory_order_relaxed);
+
+	uint32_t count = g_latency_trace.presentCounter.fetch_add(1, std::memory_order_relaxed) + 1;
+	if ((count & 0x3f) != 0)
+		return;
+
+	if (inputQpc <= 0 || emuStartQpc < inputQpc || emuEndQpc < emuStartQpc || publishQpc < emuEndQpc || presentQpc < publishQpc)
+		return;
+
+	char buf[256];
+	_snprintf(buf, sizeof(buf),
+		"[SNES9X-LAT] input->emu_start=%.3fms emu=%.3fms emu_end->publish=%.3fms publish->present_submit=%.3fms total_input->present_submit=%.3fms\n",
+		WinLatencyQpcToMs(emuStartQpc - inputQpc),
+		WinLatencyQpcToMs(emuEndQpc - emuStartQpc),
+		WinLatencyQpcToMs(publishQpc - emuEndQpc),
+		WinLatencyQpcToMs(presentQpc - publishQpc),
+		WinLatencyQpcToMs(presentQpc - inputQpc));
+	buf[sizeof(buf) - 1] = '\0';
+	WinLatencyLogLine(buf);
+}
+
 void WinEnableFrameHandoff(bool enabled)
 {
-	std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
-	g_frame_handoff.enabled = enabled;
-	if (!enabled)
+	HANDLE closeEvent = NULL;
 	{
-		g_frame_handoff.latestPixels.clear();
-		g_frame_handoff.renderPixels.clear();
-		g_frame_handoff.latestWidth = 0;
-		g_frame_handoff.latestHeight = 0;
-		g_frame_handoff.latestPitch = 0;
-		g_frame_handoff.latestSerial = 0;
-		g_frame_handoff.renderedSerial = 0;
+		std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
+		if (enabled && !g_frame_handoff.frameReadyEvent)
+			g_frame_handoff.frameReadyEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+		if (!enabled && g_frame_handoff.frameReadyEvent)
+		{
+			closeEvent = g_frame_handoff.frameReadyEvent;
+			g_frame_handoff.frameReadyEvent = NULL;
+		}
+
+		g_frame_handoff.enabled = enabled;
+		if (!enabled)
+		{
+			g_frame_handoff.framePixels[0].clear();
+			g_frame_handoff.framePixels[1].clear();
+			g_frame_handoff.frameWidth[0] = g_frame_handoff.frameWidth[1] = 0;
+			g_frame_handoff.frameHeight[0] = g_frame_handoff.frameHeight[1] = 0;
+			g_frame_handoff.framePitch[0] = g_frame_handoff.framePitch[1] = 0;
+			g_frame_handoff.latestIndex = -1;
+			g_frame_handoff.renderIndex = -1;
+			g_frame_handoff.latestSerial = 0;
+			g_frame_handoff.renderedSerial = 0;
+			g_src_base_surface = NULL;
+			g_latency_trace.inputSampleQpc.store(0, std::memory_order_relaxed);
+			g_latency_trace.emuStartQpc.store(0, std::memory_order_relaxed);
+			g_latency_trace.emuEndQpc.store(0, std::memory_order_relaxed);
+			g_latency_trace.framePublishQpc.store(0, std::memory_order_relaxed);
+			g_latency_trace.presentCounter.store(0, std::memory_order_relaxed);
+		}
 	}
+
+	if (closeEvent)
+		CloseHandle(closeEvent);
 }
 
 void WinClearFrameHandoff()
 {
 	std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
-	g_frame_handoff.latestPixels.clear();
-	g_frame_handoff.renderPixels.clear();
-	g_frame_handoff.latestWidth = 0;
-	g_frame_handoff.latestHeight = 0;
-	g_frame_handoff.latestPitch = 0;
+	g_frame_handoff.framePixels[0].clear();
+	g_frame_handoff.framePixels[1].clear();
+	g_frame_handoff.frameWidth[0] = g_frame_handoff.frameWidth[1] = 0;
+	g_frame_handoff.frameHeight[0] = g_frame_handoff.frameHeight[1] = 0;
+	g_frame_handoff.framePitch[0] = g_frame_handoff.framePitch[1] = 0;
+	g_frame_handoff.latestIndex = -1;
+	g_frame_handoff.renderIndex = -1;
 	g_frame_handoff.latestSerial = 0;
 	g_frame_handoff.renderedSerial = 0;
+	if (g_frame_handoff.frameReadyEvent)
+		ResetEvent(g_frame_handoff.frameReadyEvent);
+	g_src_base_surface = NULL;
+	g_latency_trace.inputSampleQpc.store(0, std::memory_order_relaxed);
+	g_latency_trace.emuStartQpc.store(0, std::memory_order_relaxed);
+	g_latency_trace.emuEndQpc.store(0, std::memory_order_relaxed);
+	g_latency_trace.framePublishQpc.store(0, std::memory_order_relaxed);
+	g_latency_trace.presentCounter.store(0, std::memory_order_relaxed);
+}
+
+HANDLE WinGetFrameReadyEvent()
+{
+	std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
+	return g_frame_handoff.frameReadyEvent;
 }
 
 static void WinPublishFrame(const BYTE *surface, int width, int height, int pitch)
@@ -101,48 +246,88 @@ static void WinPublishFrame(const BYTE *surface, int width, int height, int pitc
 	if (!surface || width <= 0 || height <= 0 || pitch <= 0)
 		return;
 
-	std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
-	if (!g_frame_handoff.enabled)
-		return;
-
+	int writeIndex = 0;
+	BYTE *dst = NULL;
+	HANDLE frameReadyEvent = NULL;
 	const size_t copySize = static_cast<size_t>(height) * static_cast<size_t>(pitch);
-	if (g_frame_handoff.latestPixels.size() != copySize)
-		g_frame_handoff.latestPixels.resize(copySize);
 
-	memcpy(g_frame_handoff.latestPixels.data(), surface, copySize);
-	g_frame_handoff.latestWidth = width;
-	g_frame_handoff.latestHeight = height;
-	g_frame_handoff.latestPitch = pitch;
-	g_frame_handoff.latestSerial++;
+	{
+		std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
+		if (!g_frame_handoff.enabled)
+			return;
+
+		if (g_frame_handoff.renderIndex == 0)
+			writeIndex = 1;
+		else if (g_frame_handoff.renderIndex == 1)
+			writeIndex = 0;
+		else
+			writeIndex = (g_frame_handoff.latestIndex == 0) ? 1 : 0;
+
+		if (g_frame_handoff.framePixels[writeIndex].size() != copySize)
+			g_frame_handoff.framePixels[writeIndex].resize(copySize);
+
+		dst = g_frame_handoff.framePixels[writeIndex].data();
+		frameReadyEvent = g_frame_handoff.frameReadyEvent;
+	}
+
+	memcpy(dst, surface, copySize);
+
+	{
+		std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
+		if (!g_frame_handoff.enabled)
+			return;
+		g_frame_handoff.frameWidth[writeIndex] = width;
+		g_frame_handoff.frameHeight[writeIndex] = height;
+		g_frame_handoff.framePitch[writeIndex] = pitch;
+		g_frame_handoff.latestIndex = writeIndex;
+		g_frame_handoff.latestSerial++;
+	}
+
+	WinLatencyMarkFramePublished();
+
+	if (frameReadyEvent)
+		SetEvent(frameReadyEvent);
 }
 
 bool WinConsumeFrameAndRender()
 {
+	int consumeIndex = -1;
 	int width = 0;
 	int height = 0;
 	int pitch = 0;
+	BYTE *surface = NULL;
 
 	{
 		std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
-		if (!g_frame_handoff.enabled || g_frame_handoff.latestSerial == g_frame_handoff.renderedSerial)
+		if (!g_frame_handoff.enabled || g_frame_handoff.latestSerial == g_frame_handoff.renderedSerial || g_frame_handoff.latestIndex < 0)
 			return false;
 
-		width = g_frame_handoff.latestWidth;
-		height = g_frame_handoff.latestHeight;
-		pitch = g_frame_handoff.latestPitch;
-		g_frame_handoff.renderPixels = g_frame_handoff.latestPixels;
+		consumeIndex = g_frame_handoff.latestIndex;
+		width = g_frame_handoff.frameWidth[consumeIndex];
+		height = g_frame_handoff.frameHeight[consumeIndex];
+		pitch = g_frame_handoff.framePitch[consumeIndex];
+		surface = g_frame_handoff.framePixels[consumeIndex].data();
+		g_frame_handoff.renderIndex = consumeIndex;
 		g_frame_handoff.renderedSerial = g_frame_handoff.latestSerial;
 	}
 
-	if (width <= 0 || height <= 0 || pitch <= 0 || g_frame_handoff.renderPixels.empty())
+	if (width <= 0 || height <= 0 || pitch <= 0 || !surface)
 		return false;
 
 	Src.Width = width;
 	Src.Height = height;
 	Src.Pitch = pitch;
-	Src.Surface = g_frame_handoff.renderPixels.data();
+	g_src_base_surface = surface;
+	Src.Surface = surface;
 
 	WinRefreshDisplay();
+
+	{
+		std::lock_guard<std::mutex> lock(g_frame_handoff.mutex);
+		if (g_frame_handoff.renderIndex == consumeIndex)
+			g_frame_handoff.renderIndex = -1;
+	}
+
 	return true;
 }
 
@@ -166,7 +351,9 @@ static void CheckOverscanOffset()
 			lines_to_skip = -16;
 	}
 
-	Src.Surface = (BYTE*)(GFX.Screen + lines_to_skip * (int)GFX.RealPPL);
+	BYTE *base = g_src_base_surface ? g_src_base_surface : (BYTE *)GFX.Screen;
+	int pitch = Src.Pitch ? Src.Pitch : (int)GFX.RealPPL * 2;
+	Src.Surface = base + lines_to_skip * pitch;
 }
 
 /*  WinRefreshDisplay

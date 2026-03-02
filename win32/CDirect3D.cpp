@@ -28,9 +28,19 @@
 
 namespace {
 
+using Direct3DCreate9ExProc = HRESULT (WINAPI *)(UINT, IDirect3D9Ex **);
+
 static UINT EffectiveBackBufferCount()
 {
 	return 1;
+}
+
+static void ApplyLowLatencySettings(LPDIRECT3DDEVICE9EX deviceEx)
+{
+	if (!deviceEx)
+		return;
+
+	deviceEx->SetMaximumFrameLatency(1);
 }
 
 }
@@ -50,6 +60,7 @@ CDirect3D::CDirect3D()
 	init_done = false;
 	pD3D = NULL;
 	pDevice = NULL;
+	pDeviceEx = NULL;
 	drawSurface = NULL;
 	vertexBuffer = NULL;
 	afterRenderWidth = 0;
@@ -93,7 +104,22 @@ bool CDirect3D::Initialize(HWND hWnd)
 	if(init_done)
 		return true;
 
-	pD3D = Direct3DCreate9(D3D_SDK_VERSION);
+	IDirect3D9Ex *d3d9Ex = NULL;
+	HMODULE d3d9Module = GetModuleHandleA("d3d9.dll");
+	if (!d3d9Module)
+		d3d9Module = LoadLibraryA("d3d9.dll");
+	if (d3d9Module)
+	{
+		auto create9Ex = reinterpret_cast<Direct3DCreate9ExProc>(GetProcAddress(d3d9Module, "Direct3DCreate9Ex"));
+		if (create9Ex)
+			create9Ex(D3D_SDK_VERSION, &d3d9Ex);
+	}
+
+	if (d3d9Ex)
+		pD3D = d3d9Ex;
+	else
+		pD3D = Direct3DCreate9(D3D_SDK_VERSION);
+
 	if(pD3D == NULL) {
 		MessageBox(nullptr, TEXT("Error creating initial D3D object"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		return false;
@@ -107,17 +133,42 @@ bool CDirect3D::Initialize(HWND hWnd)
 	dPresentParams.BackBufferFormat = D3DFMT_UNKNOWN;
 	dPresentParams.PresentationInterval = GUI.Vsync ? D3DPRESENT_INTERVAL_ONE : D3DPRESENT_INTERVAL_IMMEDIATE;
 
-	HRESULT hr = pD3D->CreateDevice(D3DADAPTER_DEFAULT,
-                      D3DDEVTYPE_HAL,
-                      hWnd,
-                      D3DCREATE_MIXED_VERTEXPROCESSING,
-					  &dPresentParams,
-                      &pDevice);
+	HRESULT hr = E_FAIL;
+	if (d3d9Ex)
+	{
+		hr = d3d9Ex->CreateDeviceEx(D3DADAPTER_DEFAULT,
+								 D3DDEVTYPE_HAL,
+								 hWnd,
+								 D3DCREATE_MIXED_VERTEXPROCESSING,
+								 &dPresentParams,
+								 NULL,
+								 &pDeviceEx);
+		if (SUCCEEDED(hr))
+		{
+			pDeviceEx->AddRef();
+			pDevice = pDeviceEx;
+		}
+	}
+
+	if (!pDevice)
+	{
+		hr = pD3D->CreateDevice(D3DADAPTER_DEFAULT,
+						 D3DDEVTYPE_HAL,
+						 hWnd,
+						 D3DCREATE_MIXED_VERTEXPROCESSING,
+						 &dPresentParams,
+						 &pDevice);
+	}
 	if(FAILED(hr)) {
 		//DXTRACE_ERR_MSGBOX(TEXT("Error creating D3D9 device"), hr);
 		MessageBox(nullptr, TEXT("Error creating D3D9 device"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		return false;
 	}
+
+	if (!pDeviceEx && pDevice)
+		pDevice->QueryInterface(IID_IDirect3DDevice9Ex, reinterpret_cast<void **>(&pDeviceEx));
+
+	ApplyLowLatencySettings(pDeviceEx);
 
 	hr = pDevice->CreateVertexBuffer(sizeof(vertexStream),D3DUSAGE_WRITEONLY,0,D3DPOOL_MANAGED,&vertexBuffer,NULL);
 	if(FAILED(hr)) {
@@ -205,6 +256,11 @@ void CDirect3D::DeInitialize()
 	if(latencyQuery) {
 		latencyQuery->Release();
 		latencyQuery = NULL;
+	}
+
+	if(pDeviceEx) {
+		pDeviceEx->Release();
+		pDeviceEx = NULL;
 	}
 
 	if( pDevice ) {
@@ -372,6 +428,7 @@ void CDirect3D::Render(SSurface Src)
 	}
 
 	pDevice->EndScene();
+	WinLatencyMarkPresentSubmit();
 	pDevice->Present(NULL, NULL, NULL, NULL);
 
 	if (!GUI.Vsync && !GUI.DWMSync)
@@ -602,11 +659,18 @@ bool CDirect3D::ResetDevice()
 		dPresentParams.FullScreen_RefreshRateInHz = GUI.FullscreenMode.rate;
 	}
 
-	if(FAILED(hr = pDevice->Reset(&dPresentParams))) {
+	if (pDeviceEx)
+		hr = pDeviceEx->ResetEx(&dPresentParams, NULL);
+	else
+		hr = pDevice->Reset(&dPresentParams);
+
+	if(FAILED(hr)) {
 		//DXTRACE_ERR(TEXT("Unable to reset device"), hr);
 		char dbgbuf[256]; snprintf(dbgbuf, sizeof(dbgbuf), "[SNES9X-D3D] Unable to reset device hr=0x%08X", hr); OutputDebugStringA(dbgbuf); MessageBox(nullptr, TEXT("Unable to reset device"), TEXT("Error"), MB_ICONERROR | MB_OK);
 		return false;
 	}
+
+	ApplyLowLatencySettings(pDeviceEx);
 
 	if(cgAvailable) {
 		cgD3D9SetDevice(pDevice);
@@ -683,6 +747,7 @@ bool CDirect3D::SetFullscreen(bool fullscreen)
 		return false;
 
 	//present here to get a fullscreen blank even if no rendering is done
+	WinLatencyMarkPresentSubmit();
 	pDevice->Present(NULL,NULL,NULL,NULL);
 
 	return true;

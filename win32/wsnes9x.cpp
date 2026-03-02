@@ -3360,7 +3360,10 @@ int WINAPI WinMain(
 
 			WinThrottleFramerate();
 			ProcessInput();
+			WinLatencyMarkInputSample();
+			WinLatencyMarkEmuStepStart();
 			S9xMainLoop();
+			WinLatencyMarkEmuStepEnd();
 
 			if (isMemShareRunning)
 			{
@@ -3425,7 +3428,18 @@ int WINAPI WinMain(
 		}
 
 		if (!rendered)
-			Sleep(1);
+		{
+			HANDLE frameReadyEvent = WinGetFrameReadyEvent();
+			if (frameReadyEvent)
+			{
+				HANDLE handles[1] = { frameReadyEvent };
+				MsgWaitForMultipleObjects(1, handles, FALSE, INFINITE, QS_ALLINPUT);
+			}
+			else
+			{
+				Sleep(1);
+			}
+		}
 	}
 
 loop_exit:

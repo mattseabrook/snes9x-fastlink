@@ -172,6 +172,7 @@ void CVulkan::Render(SSurface Src)
 
     if (result)
     {
+		WinLatencyMarkPresentSubmit();
         bool swapped = context->swapchain->swap();
         if(!swapped) VDbg("context->swapchain->swap() returned false");
     }
