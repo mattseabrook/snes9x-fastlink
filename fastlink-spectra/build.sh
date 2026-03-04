@@ -69,7 +69,7 @@ CXXFLAGS=(
   "-fuse-ld=lld"
   "--target=$TARGET_TRIPLE"
   "/nologo"
-  "/std:c++20"
+  "/std:c++latest"
   "/EHsc"
   "/O2"
   "/MT"

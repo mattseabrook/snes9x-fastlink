@@ -4,8 +4,8 @@ set -euo pipefail
 #===============================================================================
 # snes9x-fastlink - Linux -> Windows cross build (clang-cl + lld-link)
 # - Fully automated: builds missing dependencies (zlib, libpng, glslang, spirv-cross)
-# - Parses win32/snes9xw.vcxproj for sources (no hand-maintained file lists)
-# - Builds .res from win32/rsrc/snes9x.rc
+# - Dynamically discovers sources (VCXPROJ-free)
+# - Builds .res from src/platform/win32/rsrc/snes9x.rc
 # - Links static zlib/libpng (+ optional glslang + SPIRV-Cross)
 #
 # Usage: ./build.sh [build|clean|deps]
@@ -29,15 +29,22 @@ ok(){ printf "${CG}✓ %s${C0}\n" "$*"; }
 die(){ printf "${CR}✗ %s${C0}\n" "$*" >&2; exit 1; }
 
 # ------------------------------ Config ---------------------------------------
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -d "$SCRIPT_DIR/win32" && -f "$SCRIPT_DIR/.gitmodules" ]]; then
+  ROOT_DIR="$SCRIPT_DIR"
+elif [[ -d "$SCRIPT_DIR/../win32" && -f "$SCRIPT_DIR/../.gitmodules" ]]; then
+  ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+  ROOT_DIR="$SCRIPT_DIR"
+fi
 cd "$ROOT_DIR"
 
 TARGET_TRIPLE="${TARGET_TRIPLE:-x86_64-pc-windows-msvc}"
 CONFIG="${CONFIG:-Release}"
-BUILD_DIR="${BUILD_DIR:-build-win64}"
-OUT_DIR="${OUT_DIR:-out}"
+BUILD_DIR="${BUILD_DIR:-build}"
 WINSDK_BASE="${WINSDK_BASE:-/opt/winsdk}"
 DEPS_BUILD_DIR="${DEPS_BUILD_DIR:-/tmp/snes9x-deps-build}"
+MNT_COPY_DIR="${MNT_COPY_DIR:-/mnt/PhantomIDE}"
 
 # Prebuilt static libs location
 LIBS_PREFIX="${LIBS_PREFIX:-/opt/windows-libs}"
@@ -289,7 +296,7 @@ build_spirv_cross() {
 }
 
 # ----------------------- Dependency checker ----------------------------------
-# Note: glslang and SPIRV-Cross sources are bundled in external/ and win32/glslang/
+# Note: glslang and SPIRV-Cross sources are bundled in external/
 # We only need zlib and libpng as external static libraries
 check_and_build_deps() {
   banner "Checking dependencies"
@@ -329,45 +336,104 @@ check_and_build_deps() {
   ok "All dependencies ready"
 }
 
-# ------------------------- Project parsing -----------------------------------
-extract_sources() {
-  python3 - "$1" <<'PY'
-import sys, xml.etree.ElementTree as ET, os
-ns={'msb':'http://schemas.microsoft.com/developer/msbuild/2003'}
-proj_dir = os.path.dirname(sys.argv[1])
-t=ET.parse(sys.argv[1]); r=t.getroot()
-for item in r.findall('.//msb:ClCompile', ns):
-    inc=item.attrib.get('Include')
-    if inc and inc.lower().endswith(('.cpp','.c')):
-        # Check if excluded from build (Release x64)
-        excluded = False
-        for child in item.findall('msb:ExcludedFromBuild', ns):
-            cond = child.attrib.get('Condition', '')
-            # Check for Release x64 exclusion
-            if 'Release' in cond and 'x64' in cond:
-                if child.text and child.text.lower() == 'true':
-                    excluded = True
-                    break
-        if excluded:
-            continue
-        # Normalize path relative to project dir, then to repo root
-        path = inc.replace('\\','/')
-        full = os.path.normpath(os.path.join(proj_dir, path))
-        print(full)
-PY
+# ------------------------- Dynamic source discovery --------------------------
+discover_sources() {
+  local -a common_roots=(
+    "src/filter"
+    "src/jma"
+    "src/core"
+    "src/fastlink"
+    "src/platform/win32"
+    "src/unzip"
+    "src/vulkan"
+    "external/imgui"
+    "external/stb"
+  )
+
+  local -a common_sources=()
+  local -a apu_sources=()
+  local -a slang_sources=()
+  local -a all_sources=()
+
+  local -a apu_units=(
+    "src/core/apu/apu.cpp"
+    "src/core/apu/bapu/dsp/sdsp.cpp"
+    "src/core/apu/bapu/smp/smp.cpp"
+    "src/core/apu/bapu/smp/smp_state.cpp"
+  )
+  local unit
+  for unit in "${apu_units[@]}"; do
+    [[ -f "$unit" ]] && apu_sources+=("$unit")
+  done
+
+  if [[ ${#common_roots[@]} -gt 0 ]]; then
+    mapfile -d '' -t common_sources < <(
+      find "${common_roots[@]}" -type f \
+        \( -name "*.c" -o -name "*.cpp" \) \
+        ! -path "src/core/apu/*" \
+        ! -path "src/platform/win32/rsrc/*" \
+        ! -path "src/platform/win32/zlib/*" \
+        ! -path "src/platform/win32/CD3DCG.cpp" \
+        ! -path "src/platform/win32/cgFunctions.cpp" \
+        ! -path "src/platform/win32/image_functions.cpp" \
+        ! -path "src/platform/win32/winmain_patch.cpp" \
+        ! -path "src/core/cartridge/srtcemu.cpp" \
+        ! -path "src/core/cartridge/spc7110emu.cpp" \
+        ! -path "external/SPIRV-Cross/main.cpp" \
+        ! -path "external/imgui/imgui_impl_dx9.cpp" \
+        ! -path "src/unzip/minizip.c" \
+        ! -path "src/unzip/miniunz.c" \
+        ! -path "src/vulkan/slang_preset_test.cpp" \
+        ! -path "src/vulkan/std_chrono_throttle.cpp" \
+        | LC_ALL=C sort -z
+    )
+  fi
+
+  if [[ "$WITH_SLANG" == "1" ]]; then
+    local -a glslang_roots=(
+      "external/glslang/glslang/GenericCodeGen"
+      "external/glslang/glslang/MachineIndependent"
+      "external/glslang/glslang/MachineIndependent/preprocessor"
+      "external/glslang/glslang/OSDependent/Windows"
+      "external/glslang/glslang/ResourceLimits"
+      "external/glslang/OGLCompilersDLL"
+      "external/glslang/SPIRV"
+      "external/SPIRV-Cross"
+    )
+
+    local -a include_predicates=(
+      -name "*.cpp"
+    )
+
+    mapfile -d '' -t slang_sources < <(
+      find "${glslang_roots[@]}" -type f \
+        \( "${include_predicates[@]}" \) \
+        ! -path "external/SPIRV-Cross/*/*" \
+        ! -path "external/SPIRV-Cross/main.cpp" \
+        ! -path "external/glslang/glslang/OSDependent/Windows/main.cpp" \
+        ! -path "*/test/*" \
+        ! -path "*/tests/*" \
+        | LC_ALL=C sort -z
+    )
+  fi
+
+  all_sources=("${apu_sources[@]}" "${common_sources[@]}" "${slang_sources[@]}")
+  [[ ${#all_sources[@]} -gt 0 ]] || die "No sources discovered"
+
+  printf '%s\n' "${all_sources[@]}"
 }
 
 # --------------------------- Build steps --------------------------------------
 compile_res() {
   banner "Compiling resources (.rc → .res)"
 
-  local rc="win32/rsrc/snes9x.rc"
+  local rc="src/platform/win32/rsrc/snes9x.rc"
   [[ -f "$rc" ]] || die "Missing resource file: $rc"
 
-  mkdir -p "$BUILD_DIR/obj" "$OUT_DIR"
+  mkdir -p "$BUILD_DIR/obj"
 
   # llvm-rc struggles with MSVC-style RC files; preprocess with clang first
-  local rc_inc=("-I$CRT_INC" "-I$INC_UCRT" "-I$INC_UM" "-I$INC_SHARED" "-Iwin32/rsrc")
+  local rc_inc=("-I$CRT_INC" "-I$INC_UCRT" "-I$INC_UM" "-I$INC_SHARED" "-Isrc/platform/win32/rsrc")
   local preprocessed="$BUILD_DIR/obj/snes9x_pp.rc"
 
   # Preprocess the RC file (fallback path)
@@ -376,12 +442,12 @@ compile_res() {
 
   # Prefer compiling the original RC so resource syntax stays intact
   if command -v "$RC_TOOL" >/dev/null 2>&1; then
-    "$RC_TOOL" /nologo /DWIN32 /D_WIN32 /Iwin32/rsrc \
+    "$RC_TOOL" /nologo /DWIN32 /D_WIN32 /Isrc/platform/win32/rsrc \
       /I"$INC_UM" /I"$INC_SHARED" /I"$INC_UCRT" /I"$CRT_INC" \
       /fo "$BUILD_DIR/obj/snes9x.res" "$rc" 2>/dev/null || {
       # Fallback: try preprocessed file if direct compile fails
       if [[ -s "$preprocessed" ]]; then
-        "$RC_TOOL" /nologo /Iwin32/rsrc /fo "$BUILD_DIR/obj/snes9x.res" "$preprocessed" 2>/dev/null || {
+        "$RC_TOOL" /nologo /Isrc/platform/win32/rsrc /fo "$BUILD_DIR/obj/snes9x.res" "$preprocessed" 2>/dev/null || {
           info "Resource compilation failed - creating stub .res"
           echo "" | "$RC_TOOL" /nologo /fo "$BUILD_DIR/obj/snes9x.res" /dev/stdin 2>/dev/null || \
             touch "$BUILD_DIR/obj/snes9x.res"
@@ -404,29 +470,11 @@ compile_res() {
 compile_objects() {
   banner "Compiling sources ($CONFIG)"
 
-  local proj="win32/snes9xw.vcxproj"
-  [[ -f "$proj" ]] || die "Missing project: $proj"
+  mapfile -t SOURCES < <(discover_sources)
+  [[ ${#SOURCES[@]} -gt 0 ]] || die "No sources discovered"
 
-  mapfile -t SOURCES < <(extract_sources "$proj")
-  [[ ${#SOURCES[@]} -gt 0 ]] || die "No sources extracted from $proj"
-
-  if [[ "$WITH_SLANG" == "1" ]]; then
-    local glslang_proj="win32/glslang/glslang/glslang.vcxproj"
-    local spirv_proj="win32/glslang/SPIRV/SPIRV.vcxproj"
-    local osdep_proj="win32/glslang/glslang/OSDependent/Windows/OSDependent.vcxproj"
-    local ogl_proj="win32/glslang/OGLCompilersDLL/OGLCompiler.vcxproj"
-    [[ -f "$glslang_proj" ]] || die "Missing project: $glslang_proj"
-    [[ -f "$spirv_proj" ]] || die "Missing project: $spirv_proj"
-    [[ -f "$osdep_proj" ]] || die "Missing project: $osdep_proj"
-    [[ -f "$ogl_proj" ]] || die "Missing project: $ogl_proj"
-    mapfile -t GLSLANG_SOURCES < <(extract_sources "$glslang_proj")
-    mapfile -t SPIRV_SOURCES < <(extract_sources "$spirv_proj")
-    mapfile -t OSDEP_SOURCES < <(extract_sources "$osdep_proj")
-    mapfile -t OGL_SOURCES < <(extract_sources "$ogl_proj")
-    SOURCES+=("${GLSLANG_SOURCES[@]}" "${SPIRV_SOURCES[@]}" "${OSDEP_SOURCES[@]}" "${OGL_SOURCES[@]}")
-  fi
-
-  mkdir -p "$BUILD_DIR/obj" "$OUT_DIR"
+  mkdir -p "$BUILD_DIR/obj"
+  rm -f "$BUILD_DIR/obj"/*.obj "$BUILD_DIR/obj"/*.log 2>/dev/null || true
   rm -f "$BUILD_DIR/compile_manifest.txt"
 
   # Defines from vcxproj Release|x64 configuration
@@ -464,12 +512,16 @@ compile_objects() {
     opt+=("-O2" "-DNDEBUG")
   fi
 
-  # Include paths - bundled sources are in external/ and win32/
+  # Include paths - core sources are now under src/, plus bundled external and platform dirs.
   local inc=(
-    "-I." "-Iwin32" "-Iwin32/rsrc"
-    "-Iunzip" "-Ijma" "-Iapu"
+    "-I." "-Isrc" "-Isrc/platform/win32" "-Isrc/platform/win32/rsrc"
+    "-Isrc/core/cpu" "-Isrc/core/ppu" "-Isrc/core/memory" "-Isrc/core/cartridge"
+    "-Isrc/core/state" "-Isrc/core/cheats" "-Isrc/core/netplay" "-Isrc/core/video-common"
+    "-Isrc/core/util"
+    "-Isrc/fastlink" "-Isrc/fastlink/memserve" "-Isrc/fastlink/memshare"
+    "-Isrc/unzip" "-Isrc/jma" "-Isrc/filter" "-Isrc/common" "-Isrc/vulkan" "-Isrc/core/apu"
     "-Iexternal" "-Iexternal/glad/include"
-    "-Iwin32/glslang" "-Iwin32/glslang/glslang" "-Iwin32/glslang/SPIRV"
+    "-Isrc/platform/win32/glslang" "-Isrc/platform/win32/glslang/glslang" "-Isrc/platform/win32/glslang/SPIRV"
     "-Iexternal/glslang"
     "-Iexternal/SPIRV-Cross"
     "-Iexternal/stb"
@@ -488,7 +540,8 @@ compile_objects() {
   local cflags=(
     "--target=$TARGET_TRIPLE"
     "/nologo"
-    "/std:c++20"
+    "/std:c++latest"
+    "-Wno-enum-enum-conversion"
     "/EHsc"
     "/MT"
     "/Oi"
@@ -501,7 +554,7 @@ compile_objects() {
     "${msvc_inc[@]}"
   )
 
-  info "Extracted ${#SOURCES[@]} sources from $proj"
+  info "Discovered ${#SOURCES[@]} source files"
 
   local src obj count=0
   for src in "${SOURCES[@]}"; do
@@ -554,14 +607,14 @@ link_exe() {
     "/libpath:$LIB_UM"
     "kernel32.lib" "user32.lib" "gdi32.lib" "comdlg32.lib" "advapi32.lib"
     "shell32.lib" "ole32.lib" "oleaut32.lib" "winmm.lib" "shlwapi.lib"
-    "d3d9.lib" "dxguid.lib" "dsound.lib" "comctl32.lib" "opengl32.lib" "hid.lib"
+    "d3d11.lib" "dxgi.lib" "d3dcompiler.lib" "dxguid.lib" "dsound.lib" "comctl32.lib" "opengl32.lib" "hid.lib"
     "ws2_32.lib" "wsock32.lib" "vfw32.lib" "msxml2.lib" "delayimp.lib"
     "$ZLIB_DIR/lib/zlib.lib"
     "$LIBPNG_DIR/lib/libpng.lib"
   )
 
-  local out="$OUT_DIR/snes9x.exe"
-  mkdir -p "$OUT_DIR"
+  local out="$BUILD_DIR/snes9x.exe"
+  mkdir -p "$BUILD_DIR"
 
   "$CL" --target="$TARGET_TRIPLE" /nologo /MT -fuse-ld="$LINKER" \
     "${objs[@]}" \
@@ -575,11 +628,17 @@ link_exe() {
     /NODEFAULTLIB:msvcrt.lib
 
   ok "Built: $out ($(du -h "$out" | cut -f1))"
+
+  if [[ -n "$MNT_COPY_DIR" ]]; then
+    mkdir -p "$MNT_COPY_DIR" || die "Failed to create MNT_COPY_DIR: $MNT_COPY_DIR"
+    cp -f "$out" "$MNT_COPY_DIR/snes9x.exe" || die "Failed to copy executable to $MNT_COPY_DIR"
+    ok "Copied executable to $MNT_COPY_DIR/snes9x.exe"
+  fi
 }
 
 clean() {
   banner "Cleaning"
-  rm -rf "$BUILD_DIR" "$OUT_DIR"
+  rm -rf "$BUILD_DIR" out
   ok "Clean complete"
 }
 
@@ -597,6 +656,7 @@ Environment variables:
   WITH_SLANG=1|0            Enable slang shader support (default: 1)
   WINSDK_BASE=/opt/winsdk   Windows SDK location
   LIBS_PREFIX=/opt/windows-libs  Where to install/find deps
+  MNT_COPY_DIR=/mnt/PhantomIDE    Post-build mirror destination (set empty to disable)
 EOF
 }
 

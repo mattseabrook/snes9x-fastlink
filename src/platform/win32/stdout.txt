@@ -1,0 +1,10 @@
+Reading config file E:\snes9x-fastlink\win32\snes9x.conf.
+Saving	config file	E:\snes9x-fastlink\win32\snes9x.conf
+Vulkan: Using device "Intel(R) RaptorLake-S Mobile Graphics Controller"
+No ROM file header found.
+Map_SA1LoROMMap
+"ALTTPRAC v14.3.4" (NTSC) version 1.0
+ROM+RAM+BAT+SA-1: LoROM: 16 Mbit, SRAM: 2048 Kbit
+ID: $__0, CRC32: d27b6b81, Checksum OK
+Map_LoROMMap
+Saving	config file	E:\snes9x-fastlink\win32\snes9x.conf
