@@ -156,10 +156,16 @@ void S9xUpdateDynamicRate(int avail, int buffer_size)
     double target = 1.0 + (Settings.DynamicRateLimit * (buffer_size - 2 * avail)) /
                               (double)(1000 * buffer_size);
 
-    // Exponential moving average to prevent step-change clicks in the resampler.
-    // Alpha ~0.05 smooths over ~20 calls (~200ms at 10ms WASAPI period).
-    const double alpha = 0.05;
-    spc::dynamic_rate_multiplier += alpha * (target - spc::dynamic_rate_multiplier);
+    // Faster convergence than legacy smoothing while capping per-update movement
+    // to avoid audible clicks/pops on unstable sinks.
+    const double alpha = 0.16;
+    const double max_step = 0.0035;
+    double delta = alpha * (target - spc::dynamic_rate_multiplier);
+    if (delta > max_step)
+        delta = max_step;
+    else if (delta < -max_step)
+        delta = -max_step;
+    spc::dynamic_rate_multiplier += delta;
 
     UpdatePlaybackRate();
 }

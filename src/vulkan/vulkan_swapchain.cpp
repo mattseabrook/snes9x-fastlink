@@ -26,11 +26,9 @@ Swapchain::~Swapchain()
 
 bool Swapchain::set_vsync(bool new_setting)
 {
-    if (new_setting == vsync)
-        return false;
-
-    vsync = new_setting;
-    return true;
+    (void)new_setting;
+    // Forced max-performance present policy; ignore external vsync requests.
+    return false;
 }
 
 void Swapchain::on_render_pass_end(std::function<void ()> function)
@@ -169,11 +167,11 @@ bool Swapchain::create(unsigned int desired_num_swapchain_images, int new_width,
         extents.height = surface_capabilities.minImageExtent.height;
 
     auto present_modes = physical_device.getSurfacePresentModesKHR(surface);
-    auto tearing_present_mode = vk::PresentModeKHR::eFifo;
+    vk::PresentModeKHR best_present_mode = vk::PresentModeKHR::eFifo;
     if (std::find(present_modes.begin(), present_modes.end(), vk::PresentModeKHR::eImmediate) != present_modes.end())
-        tearing_present_mode = vk::PresentModeKHR::eImmediate;
+        best_present_mode = vk::PresentModeKHR::eImmediate;
     else if (std::find(present_modes.begin(), present_modes.end(), vk::PresentModeKHR::eMailbox) != present_modes.end())
-        tearing_present_mode = vk::PresentModeKHR::eMailbox;
+        best_present_mode = vk::PresentModeKHR::eMailbox;
 
     auto swapchain_create_info = vk::SwapchainCreateInfoKHR{}
         .setMinImageCount(num_swapchain_images)
@@ -184,7 +182,7 @@ bool Swapchain::create(unsigned int desired_num_swapchain_images, int new_width,
         .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferSrc)
         .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
         .setClipped(true)
-        .setPresentMode(vsync ? vk::PresentModeKHR::eFifo : tearing_present_mode)
+        .setPresentMode(best_present_mode)
         .setSurface(surface)
         .setPreTransform(vk::SurfaceTransformFlagBitsKHR::eIdentity)
         .setImageArrayLayers(1)

@@ -10,7 +10,8 @@
   - [3) Direct3D11 path latency tuning](#3-direct3d11-path-latency-tuning)
   - [4) Vulkan path queue-depth behavior](#4-vulkan-path-queue-depth-behavior)
   - [5) Audio backend architecture (Win32)](#5-audio-backend-architecture-win32)
-  - [6) Toolchain/build modernization in this fork](#6-toolchainbuild-modernization-in-this-fork)
+  - [6) Win32 input latency path (Phase D)](#6-win32-input-latency-path-phase-d)
+  - [7) Toolchain/build modernization in this fork](#7-toolchainbuild-modernization-in-this-fork)
 - [Per-file change matrix](#per-file-change-matrix)
   - [Build prerequisites (Linux host)](#build-prerequisites-linux-host)
     - [Ubuntu / Debian one-liner (default)](#ubuntu--debian-one-liner-default)
@@ -67,13 +68,14 @@ $$
 m_{\text{target}} = 1 + \frac{\lambda e}{1000B}
 $$
 
-with $\lambda = \text{DynamicRateLimit}$. In this fork, to suppress audible step artifacts, multiplier transitions are smoothed by exponential moving average:
+with $\lambda = \text{DynamicRateLimit}$. In this fork, multiplier transitions are smoothed and per-update clamped to suppress abrupt audible changes:
 
 $$
-m_t = m_{t-1} + \alpha (m_{\text{target}} - m_{t-1}), \quad \alpha = 0.05
+m_t = m_{t-1} + \operatorname{clamp}\left(\alpha (m_{\text{target}} - m_{t-1}), -s, s\right),
+\quad \alpha = 0.16, \ s = 0.0035
 $$
 
-This yields a low-pass control response: short jitter is attenuated; long-horizon drift is still corrected.
+This yields a stable low-pass control response with bounded slew: short jitter is attenuated and long-horizon drift is still corrected.
 
 For frame pacing, render queue depth is constrained at the graphics API level (D3D11 swapchain + minimal buffering + explicit present synchronization), reducing queue-induced phase lag between emulation completion and presentation submit.
 
@@ -92,13 +94,14 @@ The table below is limited to values directly observable in source (no synthetic
 | --------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | Win32 audio backend selection           | XAudio2 + WaveOut selectable in `win32/win32_sound.cpp` | WASAPI-only runtime path (`S9xSoundOutput = &S9xWasapi`) in `win32/win32_sound.cpp` |
 | Sound callback topology                 | `S9xSoundCallback` directly calls `ProcessSound()`      | Dedicated worker thread, event-driven wake, backend process event integration       |
-| Sound init buffer argument              | `S9xInitSound(25)`                                      | `S9xInitSound(100)`                                                                 |
+| Sound init buffer argument              | `S9xInitSound(25)`                                      | Profile-driven (`S9xInitSound(32)` default; safe/Bluetooth path uses 64ms)         |
 | D3D backend API                         | Direct3D9-era fixed-function pipeline                    | Direct3D11 shader-based fullscreen pipeline                                          |
 | D3D present/buffering policy            | Device-era backbuffer toggles                            | Minimal swapchain buffering with explicit D3D11 present control                      |
 | D3D device creation path                | Classic `Direct3DCreate9` and `CreateDevice`            | `D3D11CreateDeviceAndSwapChain` (hardware, then WARP fallback)                      |
-| Dynamic-rate smoothing coefficient      | No EMA smoothing constant in Win32 path                 | EMA on multiplier with `alpha = 0.05` in `src/core/apu/apu.cpp`                     |
-| WASAPI shared-mode minimum buffer floor | Not applicable (no WASAPI backend in 1.63 Win32 path)   | `minSharedBuffer = 200000` (20ms)                                                   |
+| Dynamic-rate smoothing coefficient      | No EMA smoothing constant in Win32 path                 | EMA + bounded step (`alpha = 0.16`, max step `0.0035`) in `src/core/apu/apu.cpp`   |
+| WASAPI shared-mode minimum buffer floor | Not applicable (no WASAPI backend in 1.63 Win32 path)   | `minSharedBuffer = 160000` (16ms)                                                   |
 | Audio process-event interface           | No `GetProcessEvent()` contract                         | `IS9xSoundOutput::GetProcessEvent()` added and wired by WASAPI backend              |
+| Input latency fast path                 | Legacy polling/inline-only host path                    | Phase D fast HID ingest worker path (always enabled in this fork)                   |
 | Input-to-photon absolute ms             | Not defined in source alone                             | Not defined in source alone (requires external measurement harness)                 |
 
 # Technical Change Inventory
@@ -124,6 +127,8 @@ Primary files:
 
 - Moved to an emulation-thread + render-thread handoff model in Win32 frontend flow.
 - Added frame handoff buffering with event-driven wakeup for render consumption.
+- Added latest-frame handoff mode in active low-latency pipeline.
+- Added dialog-focus safety path to avoid buffer contention artifacts while Win32 config dialogs are active.
 - Reduced handoff copy cost by storing packed frame rows (`width * 2`) instead of source pitch when possible.
 - Added optional latency tracing points from input sample -> emu -> publish -> present submit.
 
@@ -157,8 +162,10 @@ Primary files:
 - Win32 path is centered around WASAPI output (`CWasapi`).
 - Worker thread is event-driven with backend process-event integration.
 - Uses MMCSS `Pro Audio` class when available.
-- Dynamic rate control remains available but is smoothed to reduce abrupt ratio shifts.
+- Shared-mode output is default and non-invasive to other applications; optional exclusive test mode remains available via environment variable.
+- Dynamic rate control remains available and uses bounded smoothing to reduce abrupt ratio shifts.
 - `ProcessSound` writes only available real samples (no synthetic pad content in tail regions).
+- Sound init headroom is profile-driven (`32ms` default, `64ms` safe/Bluetooth profile).
 
 Primary files:
 
@@ -167,7 +174,20 @@ Primary files:
 - `win32/IS9xSoundOutput.h`
 - `src/core/apu/apu.cpp`
 
-## 6) Toolchain/build modernization in this fork
+## 6) Win32 input latency path (Phase D)
+
+- Added a fast HID ingest worker thread for reduced input scheduling jitter.
+- Fast input path is always enabled in this fork's runtime policy.
+- If explicit VID:PID targets are omitted, all Raw HID gamepads are auto-routed through the fast path.
+- Includes fail-safe fallback to inline decode if the worker is unavailable.
+
+Primary files:
+
+- `win32/win32.cpp`
+- `win32/wconfig.cpp`
+- `win32/wsnes9x.h`
+
+## 7) Toolchain/build modernization in this fork
 
 - Added Linux-hosted Windows cross-build entrypoint (`build.sh`).
 - Added dependency bootstrap builder (`build_windows_libs.sh`) for Windows static libs.
@@ -195,17 +215,18 @@ This matrix is intended as a maintenance-grade inventory: what changed, what was
 
 | File                               | Change type                     | Added / Changed behavior                                                                                                        | Removed behavior / path                                                                                                    | Efficiency impact                                                 |
 | ---------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `win32/win32_sound.cpp`            | Modified                        | WASAPI-only output path; worker thread with event-driven wake and MMCSS `Pro Audio`; `S9xInitSound(100)`                        | Runtime backend switch logic (WaveOut/XAudio2 dispatch) removed from active path; direct callback-only mixing path removed | Lower callback jitter, fewer missed deadlines, cleaner scheduling |
-| `win32/CWasapi.cpp`                | Added/Modified backend          | Shared-mode WASAPI with event callback; 20ms shared floor; writes only real samples; post-write DRC update                      | Tail gap-fill/repeat concealment path removed; `SoundCritSect` lock path removed from `ProcessSound`                       | Removes discontinuity clicks and lock contention                  |
+| `win32/win32_sound.cpp`            | Modified                        | WASAPI-only output path; worker thread with event-driven wake and MMCSS `Pro Audio`; profile-driven `S9xInitSound(32/64)`       | Runtime backend switch logic (WaveOut/XAudio2 dispatch) removed from active path; direct callback-only mixing path removed | Lower callback jitter, fewer missed deadlines, cleaner scheduling |
+| `win32/CWasapi.cpp`                | Added/Modified backend          | Shared-mode WASAPI default with event callback; 16ms shared floor; optional exclusive test mode with fallback to shared          | Tail gap-fill/repeat concealment path removed; forced-exclusive startup path removed                                         | Stable low-latency audio without disrupting other apps            |
 | `win32/CWasapi.h`                  | Modified                        | Process-event exposure and lean state                                                                                           | Last-sample concealment state fields removed                                                                               | Less mutable state, fewer branch paths                            |
 | `win32/IS9xSoundOutput.h`          | Modified interface              | Added optional `GetProcessEvent()` backend contract                                                                             | N/A                                                                                                                        | Enables true event-driven audio scheduling                        |
-| `src/core/apu/apu.cpp`             | Modified                        | EMA-smoothed host output dynamic-rate multiplier (`alpha = 0.05`) in resampler control path                                     | Immediate step assignment of host dynamic multiplier removed                                                               | Lower modulation-induced click probability without changing SNES APU core emulation |
+| `src/core/apu/apu.cpp`             | Modified                        | EMA-smoothed host output dynamic-rate multiplier (`alpha = 0.16`) with bounded per-update step (`max_step = 0.0035`)            | Immediate step assignment of host dynamic multiplier removed                                                               | Faster convergence with click/pop suppression                     |
 | `src/platform/win32/CDirect3D.cpp` | Modified                        | Full Direct3D11 rendering path (device/swapchain, shaders, texture upload, present, sync query)                               | Legacy Direct3D9Ex/classic D3D9 rendering code removed                                                                    | Keeps fallback renderer current and maintainable                  |
 | `src/platform/win32/CDirect3D.h`   | Modified                        | Interface/state updated for D3D11 objects                                                                                       | D3D9-specific device/surface/shader state removed                                                                         | Aligns fallback renderer with modern Windows graphics stack       |
 | `src/vulkan/vulkan_context.cpp`    | Modified                        | Swapchain desired latency request reduced to 1 image (`create(1, ...)`)                                                         | Prior higher requested image count path removed from this fork’s context implementation                                    | Lower queued-frame depth in Vulkan path                           |
-| `win32/win32_display.cpp`          | Modified                        | Frame handoff with packed-copy rows (`width*2`), event-driven render wake, optional latency trace points                        | Full-pitch always-copy handoff path removed in active flow                                                                 | Lower copy bandwidth + reduced handoff latency                    |
-| `win32/wsnes9x.cpp`                | Modified                        | Emu thread + render consumption loop with blocking frame-ready wait; latency markers around input/emu/present pipeline          | Legacy single-loop immediate render behavior removed from active flow                                                      | Better phase decoupling and lower jitter                          |
-| `win32/wconfig.cpp`                | Modified                        | Updated config semantics for dynamic-rate controls and Win32 sound behavior                                                     | Outdated descriptions aligned to old backend assumptions removed                                                           | Reduces operator misconfiguration risk                            |
+| `win32/win32_display.cpp`          | Modified                        | Frame handoff with packed-copy rows (`width*2`), latest-frame mode, event-driven render wake, optional latency trace points      | Full-pitch always-copy handoff path removed in active flow                                                                 | Lower copy bandwidth + reduced handoff latency                    |
+| `win32/wsnes9x.cpp`                | Modified                        | Emu thread + render consumption loop with blocking frame-ready wait; key low-latency toggles are forced on at runtime           | Legacy single-loop immediate render behavior removed from active flow                                                      | Better phase decoupling and lower jitter                          |
+| `win32/win32.cpp`                  | Modified                        | Raw HID fast ingest worker path (Phase D), auto-target-all mode when target list is empty, and inline safety fallback            | Inline-only HID processing as sole path                                                                                    | Lower input jitter with robust fallback semantics                 |
+| `win32/wconfig.cpp`                | Modified                        | Updated config semantics for dynamic-rate controls and Win32 sound/input behavior                                                 | Outdated descriptions aligned to old backend assumptions removed                                                           | Reduces operator misconfiguration risk                            |
 | `build.sh`                         | Added/maintained custom system  | Automated Linux->Windows cross build, dynamic source discovery with guarded excludes, dependency bootstrap, robust RC fallback  | Hand-maintained source manifest model removed                                                                              | Reproducible builds, lower maintenance overhead                   |
 | `build_windows_libs.sh`            | Added/maintained helper system  | SDK layout auto-detection, dependency library bootstrap, per-lib build targets                                                  | Manual repetitive per-library setup workflow removed                                                                       | Faster environment provisioning and recovery                      |
 | `win32/rsrc/*` + menu wiring files | Modified (FastLink feature era) | Memory service controls and integration hooks                                                                                   | N/A                                                                                                                        | Operational observability + tooling support                       |
@@ -345,6 +366,8 @@ Result:
 
 ### Environment variables supported
 
+Build pipeline:
+
 - `CONFIG=Release|Debug`
 - `WITH_SLANG=1|0`
 - `WINSDK_BASE=/opt/winsdk`
@@ -353,6 +376,12 @@ Result:
 - `BUILD_DIR`, `DEPS_BUILD_DIR`, `MNT_COPY_DIR`
 - `CL`, `LINKER`, `RC_TOOL`
 - `JOBS`
+
+Runtime latency/audio toggles:
+
+- `SNES9X_AUDIO_EXCLUSIVE=1` (optional exclusive-mode test path; falls back to shared mode on failure)
+- `SNES9X_AUDIO_SAFE_PROFILE=1` (forces safer 64ms audio init headroom)
+- `SNES9X_LATENCY_LOG=1` (enables latency trace logging)
 
 ### Dependency model in `build.sh`
 
@@ -443,6 +472,15 @@ Ensure LLVM toolchain packages are installed and binaries are visible in `PATH`.
 ---
 
 # Changelog
+
+## 2026-03-23
+
+- added Phase D fast HID ingest path in Win32 input runtime, with always-on policy in this fork
+- added auto-target-all behavior when no VID:PID list is provided and kept explicit target support for diagnostics
+- fixed fast-path regression that could drop controller input if worker state was unavailable
+- updated frame handoff to avoid write/render contention and added dialog-focus safety behavior for Win32 config windows
+- finalized always-on low-latency runtime policy for key toggles (frame handoff, emu worker boost, fast input)
+- updated audio runtime defaults and fallback docs (shared default, optional exclusive test, profile-driven headroom)
 
 ## 2026-03-03 - 4:17 PM EST
 

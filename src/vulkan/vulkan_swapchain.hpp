@@ -27,7 +27,7 @@ class Swapchain
     bool end_frame();
     void end_frame_without_swap();
     bool swap();
-    // Returns true if vsync setting was changed, false if it was the same
+    // Present mode is forced to highest-performance policy; this is kept for API compatibility.
     bool set_vsync(bool on);
     void on_render_pass_end(std::function<void()> function);
     int get_num_frames() { return num_swapchain_images; }
@@ -65,7 +65,7 @@ class Swapchain
     unsigned int current_frame = 0;
     unsigned int current_swapchain_image = 0;
     unsigned int num_swapchain_images = 0;
-    bool vsync = true;
+    bool vsync = false;
     std::vector<Frame> frames;
     std::vector<ImageViewFB> imageviewfbs;
 

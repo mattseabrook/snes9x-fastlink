@@ -32,6 +32,11 @@
 #include <math.h>
 
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <vector>
 #include <hidsdi.h>
 
@@ -86,22 +91,48 @@ static bool S9xReadXInputPad(int index, SJoyState &js);
 struct S9xRawHidPad
 {
 	HANDLE device = NULL;
+	USHORT vendor_id = 0;
+	USHORT product_id = 0;
 	std::vector<BYTE> preparsed;
 	HIDP_CAPS caps = {};
 	SJoyState state = {};
 	ULONGLONG last_tick = 0;
 	bool active = false;
+	bool fast_path_target = false;
 	// Unique DataIndex for each button — avoids duplicate-usage HID descriptor bugs
 	// (e.g. RetroPort SNES adapter reports duplicate Usage IDs, but DataIndex is always unique)
 	std::vector<USHORT> buttonDataIndices;
 };
 
 static std::vector<S9xRawHidPad> g_raw_hid_pads;
+static SRWLOCK g_raw_hid_lock = SRWLOCK_INIT;
+
+struct S9xFastHidPacket
+{
+	HANDLE device = NULL;
+	std::vector<BYTE> report;
+};
+
+static std::atomic<bool> g_fast_input_running(false);
+static std::thread g_fast_input_thread;
+static std::mutex g_fast_input_mutex;
+static std::condition_variable g_fast_input_cv;
+static std::deque<S9xFastHidPacket> g_fast_input_queue;
+static std::vector<DWORD> g_fast_input_targets;
+static bool g_fast_input_enabled = false;
+static const size_t kFastInputQueueLimit = 64;
 
 static bool S9xInitRawHidPad(HANDLE device, S9xRawHidPad &pad);
 static void S9xUpdateRawHidPad(S9xRawHidPad &pad, const RAWHID &hid);
+static void S9xUpdateRawHidPadReport(S9xRawHidPad &pad, const BYTE *report, ULONG report_len);
 static bool S9xGetUsageInfo(const S9xRawHidPad &pad, USAGE usage, LONG &logicalMin, LONG &logicalMax, USHORT &bitSize);
 static void S9xUpdateRawHidDPad(SJoyState &js, ULONG hat);
+static void S9xStartFastInputThread();
+static void S9xStopFastInputThread();
+static void S9xRefreshFastInputConfig();
+static bool S9xIsFastInputTarget(USHORT vendor_id, USHORT product_id);
+static void S9xQueueFastInputPacket(HANDLE device, const BYTE *report, ULONG report_len);
+static void S9xFastInputWorkerMain();
 
 static WORD S9xResolveRawVirtualKey(const RAWKEYBOARD &rk)
 {
@@ -119,8 +150,143 @@ static WORD S9xResolveRawVirtualKey(const RAWKEYBOARD &rk)
 	return vkey;
 }
 
+static void S9xRefreshFastInputConfig()
+{
+	g_fast_input_targets.clear();
+	GUI.FastInputThread = true;
+	g_fast_input_enabled = true;
+
+	if (GUI.FastInputTargets[0] != TEXT('\0'))
+	{
+		const size_t len = _tcslen(GUI.FastInputTargets);
+		std::vector<TCHAR> buffer(len + 1, TEXT('\0'));
+		_tcscpy(buffer.data(), GUI.FastInputTargets);
+
+		for (TCHAR *token = _tcstok(buffer.data(), TEXT(",; \t"));
+			token != NULL;
+			token = _tcstok(NULL, TEXT(",; \t")))
+		{
+			unsigned int vid = 0;
+			unsigned int pid = 0;
+			if (_stscanf(token, TEXT("%x:%x"), &vid, &pid) == 2 && vid <= 0xffff && pid <= 0xffff)
+			{
+				g_fast_input_targets.push_back(((DWORD)vid << 16) | (DWORD)pid);
+			}
+		}
+	}
+
+	if (g_fast_input_enabled)
+		S9xStartFastInputThread();
+	else
+		S9xStopFastInputThread();
+}
+
+static bool S9xIsFastInputTarget(USHORT vendor_id, USHORT product_id)
+{
+	if (!g_fast_input_enabled)
+		return false;
+
+	if (g_fast_input_targets.empty())
+		return true;
+
+	const DWORD key = ((DWORD)vendor_id << 16) | (DWORD)product_id;
+	for (DWORD target : g_fast_input_targets)
+	{
+		if (target == key)
+			return true;
+	}
+
+	return false;
+}
+
+static void S9xQueueFastInputPacket(HANDLE device, const BYTE *report, ULONG report_len)
+{
+	if (!g_fast_input_running.load(std::memory_order_relaxed) || !report || report_len == 0)
+		return;
+
+	S9xFastHidPacket packet;
+	packet.device = device;
+	packet.report.assign(report, report + report_len);
+
+	std::lock_guard<std::mutex> lock(g_fast_input_mutex);
+	for (auto it = g_fast_input_queue.begin(); it != g_fast_input_queue.end(); ++it)
+	{
+		if (it->device == device)
+		{
+			*it = std::move(packet);
+			g_fast_input_cv.notify_one();
+			return;
+		}
+	}
+
+	if (g_fast_input_queue.size() >= kFastInputQueueLimit)
+		g_fast_input_queue.pop_front();
+
+	g_fast_input_queue.push_back(std::move(packet));
+	g_fast_input_cv.notify_one();
+}
+
+static void S9xFastInputWorkerMain()
+{
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+
+	while (g_fast_input_running.load(std::memory_order_relaxed))
+	{
+		S9xFastHidPacket packet;
+		{
+			std::unique_lock<std::mutex> lock(g_fast_input_mutex);
+			g_fast_input_cv.wait(lock, []()
+			{
+				return !g_fast_input_running.load(std::memory_order_relaxed) || !g_fast_input_queue.empty();
+			});
+
+			if (!g_fast_input_running.load(std::memory_order_relaxed))
+				break;
+
+			packet = std::move(g_fast_input_queue.front());
+			g_fast_input_queue.pop_front();
+		}
+
+		AcquireSRWLockExclusive(&g_raw_hid_lock);
+		for (auto &pad : g_raw_hid_pads)
+		{
+			if (pad.device == packet.device)
+			{
+				S9xUpdateRawHidPadReport(pad, packet.report.data(), (ULONG)packet.report.size());
+				break;
+			}
+		}
+		ReleaseSRWLockExclusive(&g_raw_hid_lock);
+	}
+}
+
+static void S9xStartFastInputThread()
+{
+	if (!g_fast_input_enabled || g_fast_input_running.load(std::memory_order_relaxed))
+		return;
+
+	g_fast_input_running.store(true, std::memory_order_relaxed);
+	g_fast_input_thread = std::thread(S9xFastInputWorkerMain);
+}
+
+static void S9xStopFastInputThread()
+{
+	if (!g_fast_input_running.load(std::memory_order_relaxed))
+		return;
+
+	g_fast_input_running.store(false, std::memory_order_relaxed);
+	g_fast_input_cv.notify_all();
+	if (g_fast_input_thread.joinable())
+		g_fast_input_thread.join();
+
+	std::lock_guard<std::mutex> lock(g_fast_input_mutex);
+	g_fast_input_queue.clear();
+}
+
 bool S9xWinRegisterRawInput(HWND hWnd)
 {
+	S9xRefreshFastInputConfig();
+
 	RAWINPUTDEVICE devices[4] = {};
 
 	devices[0].usUsagePage = 0x01;
@@ -145,6 +311,7 @@ bool S9xWinRegisterRawInput(HWND hWnd)
 
 	if (!RegisterRawInputDevices(devices, 4, sizeof(RAWINPUTDEVICE)))
 	{
+		S9xStopFastInputThread();
 		g_raw_input_registered = false;
 		g_raw_input_hwnd = NULL;
 		return false;
@@ -159,6 +326,8 @@ void S9xWinUnregisterRawInput()
 {
 	if (!g_raw_input_registered)
 		return;
+
+	S9xStopFastInputThread();
 
 	RAWINPUTDEVICE devices[4] = {};
 	devices[0].usUsagePage = 0x01;
@@ -183,7 +352,9 @@ void S9xWinUnregisterRawInput()
 	g_raw_input_hwnd = NULL;
 	memset(g_raw_keyboard_state, 0, sizeof(g_raw_keyboard_state));
 	memset(g_raw_keyboard_ticks, 0, sizeof(g_raw_keyboard_ticks));
+	AcquireSRWLockExclusive(&g_raw_hid_lock);
 	g_raw_hid_pads.clear();
+	ReleaseSRWLockExclusive(&g_raw_hid_lock);
 }
 
 void S9xWinHandleRawInput(HRAWINPUT hRawInput)
@@ -241,21 +412,40 @@ void S9xWinHandleRawInput(HRAWINPUT hRawInput)
 		}
 	}
 
+	const RAWHID &hid = raw->data.hid;
+	const ULONG report_len = hid.dwSizeHid;
+	if (report_len == 0 || hid.dwCount == 0)
+		return;
+	const BYTE *report = hid.bRawData + (hid.dwCount - 1) * report_len;
+
+	AcquireSRWLockExclusive(&g_raw_hid_lock);
 	for (auto &pad : g_raw_hid_pads)
 	{
 		if (pad.device == device)
 		{
-			S9xUpdateRawHidPad(pad, raw->data.hid);
+			if (pad.fast_path_target && g_fast_input_running.load(std::memory_order_relaxed))
+				S9xQueueFastInputPacket(device, report, report_len);
+			else
+				S9xUpdateRawHidPadReport(pad, report, report_len);
+			ReleaseSRWLockExclusive(&g_raw_hid_lock);
 			return;
 		}
 	}
 
 	S9xRawHidPad pad;
 	if (!S9xInitRawHidPad(device, pad))
+	{
+		ReleaseSRWLockExclusive(&g_raw_hid_lock);
 		return;
+	}
 
-	S9xUpdateRawHidPad(pad, raw->data.hid);
+	if (pad.fast_path_target && g_fast_input_running.load(std::memory_order_relaxed))
+		S9xQueueFastInputPacket(device, report, report_len);
+	else
+		S9xUpdateRawHidPadReport(pad, report, report_len);
+
 	g_raw_hid_pads.push_back(pad);
+	ReleaseSRWLockExclusive(&g_raw_hid_lock);
 }
 
 // avi variables
@@ -441,7 +631,10 @@ static bool S9xInitRawHidPad(HANDLE device, S9xRawHidPad &pad)
 		return false;
 
 	pad.device = device;
+	pad.vendor_id = (USHORT)info.hid.dwVendorId;
+	pad.product_id = (USHORT)info.hid.dwProductId;
 	pad.active = true;
+	pad.fast_path_target = S9xIsFastInputTarget(pad.vendor_id, pad.product_id);
 	pad.state = {};
 
 	// Enumerate button caps to build a unique DataIndex → sequential button map.
@@ -536,12 +729,20 @@ static void S9xUpdateRawHidDPad(SJoyState &js, ULONG hat)
 
 static void S9xUpdateRawHidPad(S9xRawHidPad &pad, const RAWHID &hid)
 {
-	PHIDP_PREPARSED_DATA ppd = reinterpret_cast<PHIDP_PREPARSED_DATA>(pad.preparsed.data());
 	const ULONG report_len = hid.dwSizeHid;
 	if (report_len == 0 || hid.dwCount == 0)
 		return;
 
 	const BYTE *report = hid.bRawData + (hid.dwCount - 1) * report_len;
+	S9xUpdateRawHidPadReport(pad, report, report_len);
+}
+
+static void S9xUpdateRawHidPadReport(S9xRawHidPad &pad, const BYTE *report, ULONG report_len)
+{
+	if (!report || report_len == 0)
+		return;
+
+	PHIDP_PREPARSED_DATA ppd = reinterpret_cast<PHIDP_PREPARSED_DATA>(pad.preparsed.data());
 
 	SJoyState js = {};
 	js.Attached = true;
@@ -1154,10 +1355,19 @@ void S9xWinScanJoypads ()
 	}
 
 	int slot = 0;
-	for (size_t i = 0; i < g_raw_hid_pads.size(); i++)
+	std::vector<SJoyState> raw_hid_states;
+	AcquireSRWLockShared(&g_raw_hid_lock);
+	raw_hid_states.reserve(g_raw_hid_pads.size());
+	for (const auto &pad : g_raw_hid_pads)
 	{
-		if (!g_raw_hid_pads[i].active)
+		if (!pad.active)
 			continue;
+		raw_hid_states.push_back(pad.state);
+	}
+	ReleaseSRWLockShared(&g_raw_hid_lock);
+
+	for (size_t i = 0; i < raw_hid_states.size(); i++)
+	{
 
 		while (slot < 16 && Joystick[slot].Attached)
 			slot++;
@@ -1165,7 +1375,7 @@ void S9xWinScanJoypads ()
 		if (slot >= 16)
 			break;
 
-		Joystick[slot] = g_raw_hid_pads[i].state;
+		Joystick[slot] = raw_hid_states[i];
 		Joystick[slot].Attached = true;
 		slot++;
 	}
@@ -1288,7 +1498,10 @@ void S9xWinScanJoypads ()
 void S9xDetectJoypads()
 {
 	S9xWinInitXInput();
+	S9xRefreshFastInputConfig();
+	AcquireSRWLockExclusive(&g_raw_hid_lock);
 	g_raw_hid_pads.clear();
+	ReleaseSRWLockExclusive(&g_raw_hid_lock);
 
     for (int C = 0; C != 16; C ++)
 	{

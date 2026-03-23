@@ -55,6 +55,7 @@ struct S9xFrameHandoffState
 	HANDLE frameReadyEvent = NULL;
 	uint64_t latestSerial = 0;
 	uint64_t renderedSerial = 0;
+	bool latestOnly = true;
 	bool enabled = false;
 };
 
@@ -208,6 +209,7 @@ void WinEnableFrameHandoff(bool enabled)
 		}
 
 		g_frame_handoff.enabled = enabled;
+		g_frame_handoff.latestOnly = GUI.LowLatencyFrameHandoff;
 		if (!enabled)
 		{
 			g_frame_handoff.framePixels[0].clear();
@@ -278,12 +280,29 @@ static void WinPublishFrame(const BYTE *surface, int width, int height, int pitc
 		if (!g_frame_handoff.enabled)
 			return;
 
-		if (g_frame_handoff.renderIndex == 0)
-			writeIndex = 1;
-		else if (g_frame_handoff.renderIndex == 1)
-			writeIndex = 0;
+		bool preferLatestOnly = g_frame_handoff.latestOnly;
+		HWND activeWindow = GetActiveWindow();
+		if (preferLatestOnly && activeWindow && activeWindow != GUI.hWnd)
+			preferLatestOnly = false;
+
+		if (preferLatestOnly)
+		{
+			if (g_frame_handoff.renderIndex == 0)
+				writeIndex = 1;
+			else if (g_frame_handoff.renderIndex == 1)
+				writeIndex = 0;
+			else
+				writeIndex = (g_frame_handoff.latestIndex == 0) ? 1 : 0;
+		}
 		else
-			writeIndex = (g_frame_handoff.latestIndex == 0) ? 1 : 0;
+		{
+			if (g_frame_handoff.renderIndex == 0)
+				writeIndex = 1;
+			else if (g_frame_handoff.renderIndex == 1)
+				writeIndex = 0;
+			else
+				writeIndex = (g_frame_handoff.latestIndex == 0) ? 1 : 0;
+		}
 
 		if (g_frame_handoff.framePixels[writeIndex].size() != copySize)
 			g_frame_handoff.framePixels[writeIndex].resize(copySize);

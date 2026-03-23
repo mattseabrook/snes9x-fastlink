@@ -13,6 +13,7 @@
 #include "win32_display.h"
 #include <atomic>
 #include <thread>
+#include <cstring>
 
 typedef HANDLE (WINAPI *AvSetMmThreadCharacteristicsWProc)(LPCWSTR, LPDWORD);
 typedef BOOL (WINAPI *AvRevertMmThreadCharacteristicsProc)(HANDLE);
@@ -148,7 +149,6 @@ bool ReInitSound()
 	Settings.SoundInputRate = CLAMP(Settings.SoundInputRate,31700, 32300);
 	Settings.SoundPlaybackRate = CLAMP(Settings.SoundPlaybackRate,8000, 48000);
 	Settings.SoundSync = false;
-	Settings.DynamicRateControl = true;
 	if (Settings.DynamicRateLimit < 1 || Settings.DynamicRateLimit > 20)
 		Settings.DynamicRateLimit = 1;
 	sound_pending_jobs.store(0, std::memory_order_relaxed);
@@ -158,7 +158,19 @@ bool ReInitSound()
 		S9xSoundOutput->DeInitSoundOutput();
 
     last_volume = 1.0;
-    return S9xInitSound(100);   // 100ms resampler buffer — absorbs scheduling jitter
+
+	// Internal resampler headroom profile.
+	// Default to minimum low-latency headroom; optional safe profile for unstable sinks.
+	int init_headroom_ms = 32; // low-lag profile (aggressive but reliable)
+	char safeProfileEnv[8] = {};
+	DWORD envLen = GetEnvironmentVariableA("SNES9X_AUDIO_SAFE_PROFILE", safeProfileEnv, sizeof(safeProfileEnv));
+	if (envLen > 0 && safeProfileEnv[0] == '1')
+		init_headroom_ms = 64; // safe profile fallback
+
+	if (_tcsstr(GUI.AudioDevice, TEXT("Bluetooth")) != NULL)
+		init_headroom_ms = 64;
+
+    return S9xInitSound(init_headroom_ms);
 }
 
 void CloseSoundDevice() {

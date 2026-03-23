@@ -803,6 +803,8 @@ void WinRegisterConfigItems()
 	AddBoolC("HideMenu", GUI.HideMenu, false, "true to auto-hide the menu bar on startup.");
 	AddBoolC("Vsync", GUI.Vsync, false, "true to enable Vsync");
 	AddBoolC("ReduceInputLag", GUI.ReduceInputLag, true, "always true; low-lag mode is always enabled");
+	AddBoolC("EmuWorkerPriorityBoost", GUI.EmuWorkerPriorityBoost, true, "raises emulation worker priority for lower scheduling jitter");
+	AddBoolC("LowLatencyFrameHandoff", GUI.LowLatencyFrameHandoff, true, "single-slot latest-frame handoff mode; drops stale frames to reduce latency");
     AddBoolC("DWMSync", GUI.DWMSync, false, "sync to DWM compositor if it is running");
 	AddUIntC("OSDSize", GUI.OSDSize, 24, "Size of On-Screen Display");
 #undef CATEGORY
@@ -922,6 +924,8 @@ void WinRegisterConfigItems()
 #undef ADDTN
 #undef ADD2T2
 	AddBool2C("Input:Background", GUI.BackgroundInput, false, "on to detect game keypresses and hotkeys while window is inactive, if PauseWhenInactive = FALSE.");
+	AddBool2C("Input:FastThread", GUI.FastInputThread, true, "enable low-latency HID ingest worker thread (Phase D), enabled by default");
+	AddStringC("Input:FastTargets", GUI.FastInputTargets, 256, "", "optional comma-separated VID:PID hex pairs (e.g. 0B43:0035,16C0:27DA); empty means all raw HID gamepads use fast thread");
 	AddBool2C("Input:BackgroundKeyHotkeys", GUI.BackgroundKeyHotkeys, true, "on to also detect keyboard hotkeys when backgroundinput is active");
 #undef CATEGORY
 #define	CATEGORY "Controls\\Win\\Hotkeys"

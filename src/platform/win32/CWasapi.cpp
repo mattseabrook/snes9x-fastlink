@@ -195,15 +195,17 @@ bool CWasapi::InitClient(bool exclusive)
 
     if (!exclusive)
     {
-        const REFERENCE_TIME minSharedBuffer = 200000; // 20ms floor for live-stream stability in shared mode
+        // Shared mode should not starve or disrupt system audio.
+        // Keep a practical floor for mixer stability.
+        const REFERENCE_TIME minSharedBuffer = 160000; // 16ms
         if (requestedBuffer < minSharedBuffer)
             requestedBuffer = minSharedBuffer;
     }
-
-    if (Settings.SoundSync && GUI.ReduceInputLag)
+    else
     {
-        const REFERENCE_TIME minLowLatencyBuffer = 80000;   // 8ms
-        const REFERENCE_TIME maxLowLatencyBuffer = 240000;  // 24ms
+        // Optional exclusive test mode.
+        const REFERENCE_TIME minLowLatencyBuffer = 50000;   // 5ms
+        const REFERENCE_TIME maxLowLatencyBuffer = 100000;  // 10ms
         if (requestedBuffer < minLowLatencyBuffer)
             requestedBuffer = minLowLatencyBuffer;
         if (requestedBuffer > maxLowLatencyBuffer)
@@ -216,6 +218,7 @@ bool CWasapi::InitClient(bool exclusive)
     {
         if (requestedBuffer < minPeriod)
             requestedBuffer = minPeriod;
+
         hr = audioClient->Initialize(AUDCLNT_SHAREMODE_EXCLUSIVE,
                                      flags,
                                      requestedBuffer,
@@ -279,6 +282,23 @@ bool CWasapi::SetupSound(void)
     g_wasapi_diag.totalMixedSamples = 0;
     g_wasapi_diag.totalSilentSamples = 0;
     ReleaseClient();
+
+    // Default behavior: shared mode, never interfere with other apps.
+    // Optional testing hook: SNES9X_AUDIO_EXCLUSIVE=1.
+    bool preferExclusive = false;
+    char exclusiveEnv[8] = {};
+    DWORD exclusiveLen = GetEnvironmentVariableA("SNES9X_AUDIO_EXCLUSIVE", exclusiveEnv, sizeof(exclusiveEnv));
+    if (exclusiveLen > 0 && exclusiveEnv[0] == '1')
+        preferExclusive = true;
+
+    if (preferExclusive)
+    {
+        if (InitClient(true))
+            return true;
+
+        ReleaseClient();
+    }
+
     return InitClient(false);
 }
 

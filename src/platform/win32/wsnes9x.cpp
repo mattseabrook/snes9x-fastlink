@@ -3258,6 +3258,12 @@ int WINAPI WinMain(
 	S9xUnmapAllControls();
 	S9xSetupDefaultKeymap();
 
+	// FastLink policy: keep core low-latency options always enabled.
+	GUI.ReduceInputLag = true;
+	GUI.EmuWorkerPriorityBoost = true;
+	GUI.LowLatencyFrameHandoff = true;
+	GUI.FastInputThread = true;
+
 	WinEnableFrameHandoff(true);
 	std::atomic<bool> emuWorkerRunning(true);
 
@@ -3268,11 +3274,14 @@ int WINAPI WinMain(
 		bool isMemShareRunning = false;
 		DWORD lastTime = timeGetTime();
 
+		if (GUI.EmuWorkerPriorityBoost)
+			SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+
 		while (emuWorkerRunning.load(std::memory_order_relaxed))
 		{
 			if (IsEmulationBlockedForInput())
 			{
-				Sleep(1);
+				Sleep(0);
 				continue;
 			}
 
@@ -3437,7 +3446,7 @@ int WINAPI WinMain(
 			}
 			else
 			{
-				Sleep(1);
+				MsgWaitForMultipleObjects(0, NULL, FALSE, INFINITE, QS_ALLINPUT);
 			}
 		}
 	}

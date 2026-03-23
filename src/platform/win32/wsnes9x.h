@@ -169,6 +169,8 @@ struct sGUI {
 	bool EmulatedFullscreen;
 	bool Vsync;
 	bool ReduceInputLag;
+	bool EmuWorkerPriorityBoost;
+	bool LowLatencyFrameHandoff;
 	bool shaderEnabled;
     bool DWMSync;
 	TCHAR D3DshaderFileName[MAX_PATH];
@@ -213,8 +215,10 @@ struct sGUI {
 	int  ValidControllerOptions;
 	int  SoundChannelEnable;
 	bool BackgroundInput;
+	bool FastInputThread;
     bool BackgroundKeyHotkeys;
 	bool JoystickHotkeys;
+	TCHAR FastInputTargets[256];
 	bool MovieClearSRAM;
 	bool MovieStartFromReset;
 	bool MovieReadOnly;
