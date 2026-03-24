@@ -159,7 +159,7 @@ void S9xUpdateDynamicRate(int avail, int buffer_size)
     // Faster convergence than legacy smoothing while capping per-update movement
     // to avoid audible clicks/pops on unstable sinks.
     const double alpha = 0.16;
-    const double max_step = 0.0035;
+    const double max_step = 0.008; // Widened to allow catching up to slight frame debt overages
     double delta = alpha * (target - spc::dynamic_rate_multiplier);
     if (delta > max_step)
         delta = max_step;
@@ -179,7 +179,12 @@ static void UpdatePlaybackRate(void)
 
     if (Settings.DynamicRateControl)
     {
-        time_ratio *= spc::dynamic_rate_multiplier;
+        // Cap dynamic multiplier symmetrically to prevent math runaway or audio aliasing
+        double clamped_multiplier = spc::dynamic_rate_multiplier;
+        if (clamped_multiplier > 1.02) clamped_multiplier = 1.02;
+        if (clamped_multiplier < 0.98) clamped_multiplier = 0.98;
+
+        time_ratio *= clamped_multiplier;
     }
 
     spc::resampler.time_ratio(time_ratio);

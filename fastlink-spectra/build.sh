@@ -72,6 +72,8 @@ CXXFLAGS=(
   "/std:c++latest"
   "/EHsc"
   "/O2"
+  "/arch:AVX2"
+  "-mavx2"
   "/MT"
   "/DNDEBUG"
   "/DUNICODE"

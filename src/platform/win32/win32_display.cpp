@@ -14,6 +14,8 @@
 #include "core/video-common/font.h"
 #include "wsnes9x.h"
 #include "win32_display.h"
+#include <immintrin.h> // SIMD AVX2 support
+#include <intrin.h>
 #include "CDirect3D.h"
 #include "CVulkan.h"
 #include "IS9xDisplayOutput.h"
@@ -880,6 +882,7 @@ void WinThrottleFramerate()
 {
 	static HANDLE throttle_timer = nullptr;
 	static int64_t PCBase, PCFrameTime, PCFrameTimeNTSC, PCFrameTimePAL, PCStart, PCEnd;
+	static int64_t carry_debt_us = 0;
 
 	if (Settings.SkipFrames != AUTO_FRAMERATE)
 		return;
@@ -912,12 +915,14 @@ void WinThrottleFramerate()
 		PCFrameTime = (__int64)(PCBase * Settings.FrameTime / 1e6);
 
 	QueryPerformanceCounter((LARGE_INTEGER *)&PCEnd);
-	int64_t time_left_us = ((PCFrameTime - (PCEnd - PCStart)) * 1000000) / PCBase;
+	int64_t raw_time_left_us = ((PCFrameTime - (PCEnd - PCStart)) * 1000000) / PCBase;
+	int64_t time_left_us = raw_time_left_us - carry_debt_us;
 
 	int64_t PCFrameTime_us = (int64_t)(PCFrameTime * 1000000.0 / PCBase);
-	if (time_left_us < -PCFrameTime_us / 10)
+	if (time_left_us < -(PCFrameTime_us * 3))
 	{
-		// When we're late by too much, resync to now to avoid accumulating jitter.
+		// Major hitch: reset schedule and drop accumulated debt.
+		carry_debt_us = 0;
 		QueryPerformanceCounter((LARGE_INTEGER *)&PCStart);
 		return;
 	}
@@ -939,6 +944,21 @@ void WinThrottleFramerate()
 		}
 	}
 	QueryPerformanceCounter((LARGE_INTEGER *)&PCEnd);
+	int64_t elapsed_us = ((PCEnd - PCStart) * 1000000) / PCBase;
+	int64_t frame_error_us = elapsed_us - PCFrameTime_us;
+	if (frame_error_us > 0)
+	{
+		carry_debt_us += frame_error_us;
+		if (carry_debt_us > PCFrameTime_us * 2)
+			carry_debt_us = PCFrameTime_us * 2;
+	}
+	else if (carry_debt_us > 0)
+	{
+		carry_debt_us += frame_error_us;
+		if (carry_debt_us < 0)
+			carry_debt_us = 0;
+	}
+
 	if ((PCEnd - PCStart) > PCFrameTime + (PCFrameTime / 3))
 		PCStart = PCEnd;
 	else

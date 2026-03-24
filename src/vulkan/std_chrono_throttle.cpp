@@ -52,10 +52,14 @@ void Throttle::wait_for_frame()
 
     auto time_to_wait = remaining();
 
-    if (time_to_wait < -(frame_duration_us / 8))
+    if (time_to_wait < -(frame_duration_us * 3))
     {
         reset();
         return;
+    }
+    else if (time_to_wait < microseconds(0))
+    {
+        return; // Carry debt forward naturally
     }
 
     if (NtDelayExecution)
@@ -82,10 +86,14 @@ void Throttle::wait_for_frame()
 {
     auto time_to_wait = remaining();
 
-    if (time_to_wait < -frame_duration_us)
+    if (time_to_wait < -(frame_duration_us * 3))
     {
         reset();
         return;
+    }
+    else if (time_to_wait < microseconds(0))
+    {
+        return; // Carry debt forward naturally
     }
 
     if (time_to_wait.count() > 1000)
