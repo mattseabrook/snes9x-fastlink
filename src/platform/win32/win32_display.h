@@ -44,6 +44,7 @@ double WinGetRefreshRate();
 void S9xWinDisplayString(const char*, int, int, bool, int);
 int WinGetAutomaticInputRate();
 void WinThrottleFramerate();
+int64 WinGetThrottleCarryDebtUs();
 std::vector<ShaderParam> *WinGetShaderParameters();
 std::function<void(const char*)> WinGetShaderSaveFunction();
 

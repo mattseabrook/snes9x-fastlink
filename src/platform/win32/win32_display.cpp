@@ -37,6 +37,7 @@ typedef HRESULT (*DWMFLUSHPROC)();
 typedef HRESULT (*DWMISCOMPOSITIONENABLEDPROC)(BOOL *);
 DWMFLUSHPROC DwmFlushProc = NULL;
 DWMISCOMPOSITIONENABLEDPROC DwmIsCompositionEnabledProc = NULL;
+static std::atomic<int64_t> g_throttle_carry_debt_us { 0 };
 
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
@@ -882,7 +883,7 @@ void WinThrottleFramerate()
 {
 	static HANDLE throttle_timer = nullptr;
 	static int64_t PCBase, PCFrameTime, PCFrameTimeNTSC, PCFrameTimePAL, PCStart, PCEnd;
-	static int64_t carry_debt_us = 0;
+	int64_t carry_debt_us = g_throttle_carry_debt_us.load(std::memory_order_relaxed);
 
 	if (Settings.SkipFrames != AUTO_FRAMERATE)
 		return;
@@ -923,6 +924,7 @@ void WinThrottleFramerate()
 	{
 		// Major hitch: reset schedule and drop accumulated debt.
 		carry_debt_us = 0;
+		g_throttle_carry_debt_us.store(carry_debt_us, std::memory_order_relaxed);
 		QueryPerformanceCounter((LARGE_INTEGER *)&PCStart);
 		return;
 	}
@@ -958,11 +960,17 @@ void WinThrottleFramerate()
 		if (carry_debt_us < 0)
 			carry_debt_us = 0;
 	}
+	g_throttle_carry_debt_us.store(carry_debt_us, std::memory_order_relaxed);
 
 	if ((PCEnd - PCStart) > PCFrameTime + (PCFrameTime / 3))
 		PCStart = PCEnd;
 	else
 		PCStart += PCFrameTime;
+}
+
+int64 WinGetThrottleCarryDebtUs()
+{
+	return g_throttle_carry_debt_us.load(std::memory_order_relaxed);
 }
 
 std::vector<ShaderParam> *WinGetShaderParameters()

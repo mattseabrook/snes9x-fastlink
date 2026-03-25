@@ -4,6 +4,7 @@
    For further information, consult the LICENSE file in the root directory.
 \*****************************************************************************/
 
+#include <atomic>
 #include <cmath>
 #include <vector>
 #include "core/util/snes9x.h"
@@ -52,7 +53,9 @@ static int timing_hack_denominator = 256;
 static uint32 ratio_numerator = APU_NUMERATOR_NTSC;
 static uint32 ratio_denominator = APU_DENOMINATOR_NTSC;
 
-static double dynamic_rate_multiplier = 1.0;
+static std::atomic<double> dynamic_rate_multiplier { 1.0 };
+static std::atomic<double> timebase_rate_correction { 1.0 };
+static std::atomic<double> target_timebase_rate_correction { 1.0 };
 } // namespace spc
 
 namespace msu {
@@ -156,18 +159,51 @@ void S9xUpdateDynamicRate(int avail, int buffer_size)
     double target = 1.0 + (Settings.DynamicRateLimit * (buffer_size - 2 * avail)) /
                               (double)(1000 * buffer_size);
 
-    // Faster convergence than legacy smoothing while capping per-update movement
-    // to avoid audible clicks/pops on unstable sinks.
+    // Keep audio DRC conservative to avoid zipper noise. Long-run wall-clock
+    // correction is now handled separately by the host timebase controller.
     const double alpha = 0.16;
-    const double max_step = 0.008; // Widened to allow catching up to slight frame debt overages
-    double delta = alpha * (target - spc::dynamic_rate_multiplier);
+    const double max_step = 0.0035;
+    double current_multiplier = spc::dynamic_rate_multiplier.load(std::memory_order_relaxed);
+    double delta = alpha * (target - current_multiplier);
     if (delta > max_step)
         delta = max_step;
     else if (delta < -max_step)
         delta = -max_step;
-    spc::dynamic_rate_multiplier += delta;
+    spc::dynamic_rate_multiplier.store(current_multiplier + delta, std::memory_order_relaxed);
+
+    // Slew long-run host correction gently on the audio thread so rate changes
+    // do not land as audible zipper steps.
+    double target_timebase = spc::target_timebase_rate_correction.load(std::memory_order_relaxed);
+    double current_timebase = spc::timebase_rate_correction.load(std::memory_order_relaxed);
+    double timebase_delta = target_timebase - current_timebase;
+    const double max_timebase_step = 0.00025;
+    if (timebase_delta > max_timebase_step)
+        timebase_delta = max_timebase_step;
+    else if (timebase_delta < -max_timebase_step)
+        timebase_delta = -max_timebase_step;
+    spc::timebase_rate_correction.store(current_timebase + timebase_delta, std::memory_order_relaxed);
 
     UpdatePlaybackRate();
+}
+
+void S9xSetTimebaseRateCorrection(double multiplier)
+{
+    if (multiplier < 0.995)
+        multiplier = 0.995;
+    else if (multiplier > 1.005)
+        multiplier = 1.005;
+
+    spc::target_timebase_rate_correction.store(multiplier, std::memory_order_relaxed);
+}
+
+double S9xGetDynamicRateMultiplier(void)
+{
+    return spc::dynamic_rate_multiplier.load(std::memory_order_relaxed);
+}
+
+double S9xGetTimebaseRateCorrection(void)
+{
+    return spc::timebase_rate_correction.load(std::memory_order_relaxed);
 }
 
 static void UpdatePlaybackRate(void)
@@ -180,12 +216,14 @@ static void UpdatePlaybackRate(void)
     if (Settings.DynamicRateControl)
     {
         // Cap dynamic multiplier symmetrically to prevent math runaway or audio aliasing
-        double clamped_multiplier = spc::dynamic_rate_multiplier;
+        double clamped_multiplier = spc::dynamic_rate_multiplier.load(std::memory_order_relaxed);
         if (clamped_multiplier > 1.02) clamped_multiplier = 1.02;
         if (clamped_multiplier < 0.98) clamped_multiplier = 0.98;
 
         time_ratio *= clamped_multiplier;
     }
+
+    time_ratio *= spc::timebase_rate_correction.load(std::memory_order_relaxed);
 
     spc::resampler.time_ratio(time_ratio);
 
@@ -207,6 +245,9 @@ bool8 S9xInitSound(int buffer_ms)
 
     spc::resampler.resize(buffer_size_samples);
     msu::resampler.resize(buffer_size_samples * 3 / 2);
+    spc::dynamic_rate_multiplier.store(1.0, std::memory_order_relaxed);
+    spc::timebase_rate_correction.store(1.0, std::memory_order_relaxed);
+    spc::target_timebase_rate_correction.store(1.0, std::memory_order_relaxed);
 
     SNES::dsp.spc_dsp.set_output(&spc::resampler);
     S9xMSU1SetOutput(&msu::resampler);

@@ -171,6 +171,7 @@ struct sGUI {
 	bool ReduceInputLag;
 	bool EmuWorkerPriorityBoost;
 	bool LowLatencyFrameHandoff;
+	bool ShowTimebaseTelemetry;
 	bool shaderEnabled;
     bool DWMSync;
 	TCHAR D3DshaderFileName[MAX_PATH];

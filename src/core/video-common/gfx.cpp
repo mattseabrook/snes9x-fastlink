@@ -14,6 +14,10 @@
 #include "screenshot.h"
 #include "display.h"
 
+#if defined(_WIN32)
+#include "platform/win32/win32_timebase_telemetry.h"
+#endif
+
 extern struct SCheatData		Cheat;
 extern struct SLineData			LineData[240];
 extern struct SLineMatrixData	LineMatrixData[240];
@@ -1898,6 +1902,35 @@ static void DisplayTime (void)
 	S9xDisplayString(string, 0, 0, false);
 }
 
+#if defined(_WIN32)
+static void DisplayTimebaseTelemetry (void)
+{
+	if (!WinIsTimebaseTelemetryEnabled())
+		return;
+
+	WinTimebaseTelemetry telemetry{};
+	if (!WinGetTimebaseTelemetry(&telemetry) || !telemetry.valid)
+		return;
+
+	char line[96];
+
+	sprintf(line, "Drift %.3f ms", telemetry.windowLossMs);
+	S9xDisplayString(line, 7, IPPU.RenderedScreenWidth - (font_width - 1) * strlen(line) - 1, false);
+
+	sprintf(line, "Loss %.3f ms", telemetry.cumulativeLossMs);
+	S9xDisplayString(line, 6, IPPU.RenderedScreenWidth - (font_width - 1) * strlen(line) - 1, false);
+
+	sprintf(line, "Wall %.3f E %.3f", telemetry.windowWallSeconds, telemetry.windowEmulatedSeconds);
+	S9xDisplayString(line, 5, IPPU.RenderedScreenWidth - (font_width - 1) * strlen(line) - 1, false);
+
+	sprintf(line, "Clk %.6f A %.6f", telemetry.timebaseCorrectionMultiplier, telemetry.dynamicRateMultiplier);
+	S9xDisplayString(line, 4, IPPU.RenderedScreenWidth - (font_width - 1) * strlen(line) - 1, false);
+
+	sprintf(line, "Debt %lld @ %.3f", (long long) telemetry.throttleCarryDebtUs, telemetry.targetFrameRate);
+	S9xDisplayString(line, 3, IPPU.RenderedScreenWidth - (font_width - 1) * strlen(line) - 1, false);
+}
+#endif
+
 static void DisplayFrameRate (void)
 {
 	char	string[10];
@@ -2094,6 +2127,10 @@ void S9xDisplayMessages (uint16 *screen, int ppl, int width, int height, int sca
 
 	if (Settings.DisplayFrameRate)
 		DisplayFrameRate();
+
+#if defined(_WIN32)
+	DisplayTimebaseTelemetry();
+#endif
 
 	if (Settings.DisplayWatchedAddresses)
 		DisplayWatchedAddresses();

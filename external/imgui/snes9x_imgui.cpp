@@ -13,6 +13,10 @@
 #include "gfx.h"
 #include "ppu.h"
 
+#if defined(_WIN32)
+#include "platform/win32/win32_timebase_telemetry.h"
+#endif
+
 namespace
 {
     S9xImGuiInitInfo settings;
@@ -164,6 +168,46 @@ static std::string sjis_to_utf8(std::string in)
     return out;
 }
 
+#if defined(_WIN32)
+static bool GetTimebaseOverlayText(std::string &text)
+{
+    static uint64 last_sequence = 0;
+    static std::string cached_text;
+
+    if (!WinIsTimebaseTelemetryEnabled())
+        return false;
+
+    WinTimebaseTelemetry telemetry{};
+    if (!WinGetTimebaseTelemetry(&telemetry) || !telemetry.valid)
+        return false;
+
+    if (telemetry.sequence != last_sequence)
+    {
+        char buffer[256];
+        snprintf(buffer,
+                 sizeof(buffer),
+                 "Drift %.3f ms win\n"
+                 "Loss %.3f ms total\n"
+                 "Wall %.3fs Emu %.3fs\n"
+                 "Clk %.6fx Aud %.6fx\n"
+                 "Debt %lld us @ %.6f Hz",
+                 telemetry.windowLossMs,
+                 telemetry.cumulativeLossMs,
+                 telemetry.windowWallSeconds,
+                 telemetry.windowEmulatedSeconds,
+                 telemetry.timebaseCorrectionMultiplier,
+                 telemetry.dynamicRateMultiplier,
+                 (long long) telemetry.throttleCarryDebtUs,
+                 telemetry.targetFrameRate);
+        cached_text = buffer;
+        last_sequence = telemetry.sequence;
+    }
+
+    text = cached_text;
+    return true;
+}
+#endif
+
 bool S9xImGuiDraw(int width, int height)
 {
     if (Memory.ROMFilename.empty())
@@ -221,7 +265,21 @@ bool S9xImGuiDraw(int width, int height)
                               settings.spacing,
                               ImGui::DrawTextAlignment::END,
                               ImGui::DrawTextAlignment::BEGIN);
+
     }
+
+    #if defined(_WIN32)
+        std::string timebase_text;
+        if (GetTimebaseOverlayText(timebase_text))
+        {
+            ImGui_DrawTextOverlay(timebase_text.c_str(),
+                                  settings.spacing,
+                                  settings.spacing,
+                                  settings.spacing,
+                                  ImGui::DrawTextAlignment::BEGIN,
+                                  ImGui::DrawTextAlignment::BEGIN);
+        }
+    #endif
 
     if (Settings.DisplayPressedKeys)
     {

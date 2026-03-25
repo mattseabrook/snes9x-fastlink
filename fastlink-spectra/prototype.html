@@ -426,9 +426,28 @@
         ctx.shadowBlur = 0;
         ctx.fillText('Connecting to emulator...', canvas.width / 2, canvas.height / 2 + 20);
 
-        // Start polling (faster for smoother effects)
+        let pollTimer = null;
+
+        function getPollInterval() {
+            if (document.hidden) return 2000;
+            if (!document.hasFocus()) return 1000;
+            return 250;
+        }
+
+        function schedulePolling() {
+            if (pollTimer) {
+                clearInterval(pollTimer);
+            }
+            pollTimer = setInterval(fetchRAM, getPollInterval());
+        }
+
+        document.addEventListener('visibilitychange', schedulePolling);
+        window.addEventListener('focus', schedulePolling);
+        window.addEventListener('blur', schedulePolling);
+
+        // Start polling
         fetchRAM();
-        setInterval(fetchRAM, 100); // 10 FPS for smoother animations
+        schedulePolling();
         
         // Animation loop for particle decay even without new data
         function animate() {

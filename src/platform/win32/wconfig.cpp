@@ -805,6 +805,7 @@ void WinRegisterConfigItems()
 	AddBoolC("ReduceInputLag", GUI.ReduceInputLag, true, "always true; low-lag mode is always enabled");
 	AddBoolC("EmuWorkerPriorityBoost", GUI.EmuWorkerPriorityBoost, true, "raises emulation worker priority for lower scheduling jitter");
 	AddBoolC("LowLatencyFrameHandoff", GUI.LowLatencyFrameHandoff, true, "single-slot latest-frame handoff mode; drops stale frames to reduce latency");
+	AddBoolC("ShowTimebaseTelemetry", GUI.ShowTimebaseTelemetry, false, "true to show host drift/timebase telemetry overlay for timing analysis");
     AddBoolC("DWMSync", GUI.DWMSync, false, "sync to DWM compositor if it is running");
 	AddUIntC("OSDSize", GUI.OSDSize, 24, "Size of On-Screen Display");
 #undef CATEGORY

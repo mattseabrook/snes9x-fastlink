@@ -24,6 +24,7 @@
 #include <atomic>
 
 #include "wsnes9x.h"
+#include "win32_timebase_telemetry.h"
 #include "win32_sound.h"
 #include "win32_display.h"
 #include "CCGShader.h"
@@ -142,6 +143,48 @@ typedef struct sExtList
 	struct sExtList* next;
 } ExtList;
 HANDLE SoundEvent;
+
+static std::atomic<uint64> g_timebaseTelemetrySequence { 0 };
+static std::atomic<double> g_timebaseTelemetryWindowWallSeconds { 0.0 };
+static std::atomic<double> g_timebaseTelemetryWindowEmulatedSeconds { 0.0 };
+static std::atomic<double> g_timebaseTelemetryWindowLossMs { 0.0 };
+static std::atomic<double> g_timebaseTelemetryCumulativeLossMs { 0.0 };
+static std::atomic<double> g_timebaseTelemetryCorrectionMultiplier { 1.0 };
+static std::atomic<double> g_timebaseTelemetryDynamicRateMultiplier { 1.0 };
+static std::atomic<int64> g_timebaseTelemetryThrottleCarryDebtUs { 0 };
+static std::atomic<double> g_timebaseTelemetryTargetFrameRate { NTSC_PROGRESSIVE_FRAME_RATE };
+static std::atomic<bool> g_timebaseTelemetryValid { false };
+
+bool WinGetTimebaseTelemetry(WinTimebaseTelemetry *telemetry)
+{
+	if (!telemetry || !g_timebaseTelemetryValid.load(std::memory_order_relaxed))
+		return false;
+
+	uint64 seq_before = 0;
+	uint64 seq_after = 0;
+	do
+	{
+		seq_before = g_timebaseTelemetrySequence.load(std::memory_order_acquire);
+		telemetry->windowWallSeconds = g_timebaseTelemetryWindowWallSeconds.load(std::memory_order_relaxed);
+		telemetry->windowEmulatedSeconds = g_timebaseTelemetryWindowEmulatedSeconds.load(std::memory_order_relaxed);
+		telemetry->windowLossMs = g_timebaseTelemetryWindowLossMs.load(std::memory_order_relaxed);
+		telemetry->cumulativeLossMs = g_timebaseTelemetryCumulativeLossMs.load(std::memory_order_relaxed);
+		telemetry->timebaseCorrectionMultiplier = g_timebaseTelemetryCorrectionMultiplier.load(std::memory_order_relaxed);
+		telemetry->dynamicRateMultiplier = g_timebaseTelemetryDynamicRateMultiplier.load(std::memory_order_relaxed);
+		telemetry->throttleCarryDebtUs = g_timebaseTelemetryThrottleCarryDebtUs.load(std::memory_order_relaxed);
+		telemetry->targetFrameRate = g_timebaseTelemetryTargetFrameRate.load(std::memory_order_relaxed);
+		telemetry->valid = g_timebaseTelemetryValid.load(std::memory_order_relaxed);
+		seq_after = g_timebaseTelemetrySequence.load(std::memory_order_acquire);
+	} while (seq_before != seq_after);
+
+	telemetry->sequence = seq_after;
+	return telemetry->valid;
+}
+
+bool WinIsTimebaseTelemetryEnabled()
+{
+	return GUI.ShowTimebaseTelemetry;
+}
 
 ExtList* valid_ext=NULL;
 void MakeExtFile(void);
@@ -2143,6 +2186,9 @@ LRESULT CALLBACK WinProc(
 		case ID_EMULATION_VISUALIZATION:
 			VisualizationToggle(hWnd);
 			break;
+		case ID_EMULATION_TIMEBASE_TELEMETRY:
+			GUI.ShowTimebaseTelemetry = !GUI.ShowTimebaseTelemetry;
+			break;
 		case ID_OPTIONS_SETTINGS:
 			DialogBox(g_hInst, MAKEINTRESOURCE(IDD_EMU_SETTINGS), hWnd, DlgEmulatorProc);
 
@@ -3273,6 +3319,38 @@ int WINAPI WinMain(
 		bool isMemServeRunning = false;
 		bool isMemShareRunning = false;
 		DWORD lastTime = timeGetTime();
+		LARGE_INTEGER driftFrequency = {};
+		LARGE_INTEGER driftWindowStart = {};
+		bool driftClockReady = QueryPerformanceFrequency(&driftFrequency) != 0;
+		if (driftClockReady)
+			QueryPerformanceCounter(&driftWindowStart);
+		uint64 driftWindowFrameStart = 0;
+		uint32 lastTotalEmulatedFrames = IPPU.TotalEmulatedFrames;
+		std::string lastTelemetryRomFilename = Memory.ROMFilename;
+		double driftCorrection = 1.0;
+		double cumulativeLossMs = 0.0;
+		const uint32 driftWindowFrames = 300;
+
+		auto resetTimebaseTelemetry = [&]()
+		{
+			driftCorrection = 1.0;
+			cumulativeLossMs = 0.0;
+			S9xSetTimebaseRateCorrection(1.0);
+			g_timebaseTelemetryWindowWallSeconds.store(0.0, std::memory_order_relaxed);
+			g_timebaseTelemetryWindowEmulatedSeconds.store(0.0, std::memory_order_relaxed);
+			g_timebaseTelemetryWindowLossMs.store(0.0, std::memory_order_relaxed);
+			g_timebaseTelemetryCumulativeLossMs.store(0.0, std::memory_order_relaxed);
+			g_timebaseTelemetryCorrectionMultiplier.store(1.0, std::memory_order_relaxed);
+			g_timebaseTelemetryDynamicRateMultiplier.store(S9xGetDynamicRateMultiplier(), std::memory_order_relaxed);
+			g_timebaseTelemetryThrottleCarryDebtUs.store(WinGetThrottleCarryDebtUs(), std::memory_order_relaxed);
+			g_timebaseTelemetryTargetFrameRate.store(Settings.PAL ? PAL_PROGRESSIVE_FRAME_RATE : NTSC_PROGRESSIVE_FRAME_RATE, std::memory_order_relaxed);
+			g_timebaseTelemetryValid.store(false, std::memory_order_relaxed);
+			if (driftClockReady)
+				QueryPerformanceCounter(&driftWindowStart);
+			driftWindowFrameStart = static_cast<uint64>(GUI.FrameCount);
+			lastTotalEmulatedFrames = IPPU.TotalEmulatedFrames;
+			lastTelemetryRomFilename = Memory.ROMFilename;
+		};
 
 		if (GUI.EmuWorkerPriorityBoost)
 			SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
@@ -3382,6 +3460,54 @@ int WINAPI WinMain(
 			}
 
 			GUI.FrameCount++;
+
+			if (Memory.ROMFilename != lastTelemetryRomFilename || IPPU.TotalEmulatedFrames < lastTotalEmulatedFrames)
+				resetTimebaseTelemetry();
+			else
+				lastTotalEmulatedFrames = IPPU.TotalEmulatedFrames;
+
+			if (driftClockReady && !Settings.TurboMode && !Settings.Paused && !Settings.FrameAdvance && Settings.SkipFrames == AUTO_FRAMERATE)
+			{
+				uint64 framesSinceWindow = static_cast<uint64>(GUI.FrameCount) - driftWindowFrameStart;
+				if (framesSinceWindow >= driftWindowFrames)
+				{
+					LARGE_INTEGER now = {};
+					QueryPerformanceCounter(&now);
+					double wallSeconds = double(now.QuadPart - driftWindowStart.QuadPart) / double(driftFrequency.QuadPart);
+					double frameRate = Settings.PAL ? PAL_PROGRESSIVE_FRAME_RATE : NTSC_PROGRESSIVE_FRAME_RATE;
+					double emulatedSeconds = double(framesSinceWindow) / frameRate;
+					double errorSeconds = emulatedSeconds - wallSeconds;
+					double windowLossMs = -errorSeconds * 1000.0;
+					cumulativeLossMs += windowLossMs;
+					double targetCorrection = 1.0 - errorSeconds * 0.20;
+					if (targetCorrection < 0.995)
+						targetCorrection = 0.995;
+					else if (targetCorrection > 1.005)
+						targetCorrection = 1.005;
+
+					driftCorrection += (targetCorrection - driftCorrection) * 0.25;
+					S9xSetTimebaseRateCorrection(driftCorrection);
+
+					uint64 nextTelemetrySequence = g_timebaseTelemetrySequence.load(std::memory_order_relaxed) + 1;
+					g_timebaseTelemetryWindowWallSeconds.store(wallSeconds, std::memory_order_relaxed);
+					g_timebaseTelemetryWindowEmulatedSeconds.store(emulatedSeconds, std::memory_order_relaxed);
+					g_timebaseTelemetryWindowLossMs.store(windowLossMs, std::memory_order_relaxed);
+					g_timebaseTelemetryCumulativeLossMs.store(cumulativeLossMs, std::memory_order_relaxed);
+					g_timebaseTelemetryCorrectionMultiplier.store(driftCorrection, std::memory_order_relaxed);
+					g_timebaseTelemetryDynamicRateMultiplier.store(S9xGetDynamicRateMultiplier(), std::memory_order_relaxed);
+					g_timebaseTelemetryThrottleCarryDebtUs.store(WinGetThrottleCarryDebtUs(), std::memory_order_relaxed);
+					g_timebaseTelemetryTargetFrameRate.store(frameRate, std::memory_order_relaxed);
+					g_timebaseTelemetryValid.store(true, std::memory_order_relaxed);
+					g_timebaseTelemetrySequence.store(nextTelemetrySequence, std::memory_order_release);
+
+					driftWindowStart = now;
+					driftWindowFrameStart = static_cast<uint64>(GUI.FrameCount);
+				}
+			}
+			else if (driftCorrection != 1.0)
+			{
+				resetTimebaseTelemetry();
+			}
 
 			if (CPU.Flags & DEBUG_MODE_FLAG) [[unlikely]]
 			{
@@ -3677,6 +3803,9 @@ static void CheckMenuStates ()
 
 	mii.fState = VisualizationIsVisible() ? MFS_CHECKED : MFS_UNCHECKED;
 	SetMenuItemInfo(GUI.hMenu, ID_EMULATION_VISUALIZATION, FALSE, &mii);
+
+	mii.fState = GUI.ShowTimebaseTelemetry ? MFS_CHECKED : MFS_UNCHECKED;
+	SetMenuItemInfo(GUI.hMenu, ID_EMULATION_TIMEBASE_TELEMETRY, FALSE, &mii);
 
     mii.fState = MFS_UNCHECKED;
     if (Settings.StopEmulation)
